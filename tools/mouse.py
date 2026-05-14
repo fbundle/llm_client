@@ -1,5 +1,4 @@
 
-
 import json
 from typing import Literal
 
@@ -7,56 +6,82 @@ import pyautogui
 
 from tools.tool import Tool
 
-class MouseClickTool(Tool):
-    def mouse_click(
-        self,
-        x: float,
-        y: float,
-        button: Literal["left", "right", "middle"] = "left",
-    ) -> str:
-        """Click at (*x*, *y*) where both are in [0, 1] relative to the screen."""
+class MouseTool(Tool):
+    def mouse_move(self, x: float, y: float) -> tuple[str, bool]:
+        """Move cursor to (*x*, *y*) where both are in [0, 1] relative to the screen."""
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            return f"error: x and y must be in [0, 1], got x={x}, y={y}", False
         sw, sh = pyautogui.size()
-        pyautogui.click(x * sw, y * sh, button=button)
-        return "mouse_click ok"
-    
-    def call(self, name: str, args: str) -> str:
-        if name == "mouse_click":
+        pyautogui.moveTo(x * sw, y * sh)
+        return "mouse_move ok", True
+
+    def mouse_click(self, button: Literal["left", "right", "middle"] = "left") -> tuple[str, bool]:
+        """Click at the current cursor position."""
+        pyautogui.click(button=button)
+        return "mouse_click ok", True
+
+    def call(self, name: str, args: str) -> tuple[str, bool]:
+        try:
+            kwargs = json.loads(args)
+        except Exception as e:
+            return str(e), False
+
+        if name == "mouse_move":
             try:
-                kwargs = json.loads(args)
-                return self.mouse_click(**kwargs)
+                return self.mouse_move(float(kwargs["x"]), float(kwargs["y"]))
             except Exception as e:
-                return str(e)
+                return str(e), False
+        elif name == "mouse_click":
+            try:
+                button = str(kwargs.get("button", "left"))
+                return self.mouse_click(button)
+            except Exception as e:
+                return str(e), False
         else:
-            return "tool name not found"
+            return "tool name not found", False
 
     def openai_tools(self) -> list:
         return [
             {
                 "type": "function",
                 "function": {
-                    "name": "mouse_click",
+                    "name": "mouse_move",
                     "description": (
-                        "Click on the screen at a position relative to the provided image. "
-                        "(0, 0) is top-left corner, (1, 1) is bottom-right corner."
+                        "Move the cursor to a fractional position relative to the screen. "
+                        "x and y are floats between 0.0 and 1.0. "
+                        "(0.0, 0.0) is top-left, (0.5, 0.5) is center, (1.0, 1.0) is bottom-right. "
+                        "Use this to position the cursor over a board square before clicking."
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "x": {
                                 "type": "number",
-                                "description": "Horizontal position from 0 (left) to 1 (right).",
+                                "description": "Fractional horizontal position. Must be between 0.0 and 1.0.",
                             },
                             "y": {
                                 "type": "number",
-                                "description": "Vertical position from 0 (top) to 1 (bottom).",
-                            },
-                            "button": {
-                                "type": "string",
-                                "enum": ["left", "right", "middle"],
-                                "description": "Mouse button to press.",
+                                "description": "Fractional vertical position. Must be between 0.0 and 1.0.",
                             },
                         },
                         "required": ["x", "y"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "mouse_click",
+                    "description": "Click at the current cursor position.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "button": {
+                                "type": "string",
+                                "enum": ["left", "right", "middle"],
+                                "description": "Mouse button to press. Default is left.",
+                            },
+                        },
                     },
                 },
             },

@@ -18,8 +18,10 @@ class PikaFish:
         self._p: subprocess.Popen[bytes] | None = None
 
     def _ensure_started(self) -> None:
-        if self._p is not None:
+        if self._p is not None and self._p.poll() is None:
             return
+        if self._p is not None:
+            self._p = None  # process died, restart
         self._p = subprocess.Popen(
             [_BINARY],
             stdin=subprocess.PIPE,
@@ -114,48 +116,97 @@ class PikaFish:
             sel.close()
 
 
+PIECES = {"K", "A", "B", "N", "R", "C", "P", "k", "a", "b", "n", "r", "c", "p"}
+
+
+def grid_to_fen(grid: list[list[str]], side_to_move: str) -> str:
+    """Convert a 10x9 piece grid to xiangqi FEN.
+
+    grid[0] = red's back rank (bottom of board).
+    UPPERCASE = red, lowercase = black, "" = empty.
+    """
+    fen_ranks = []
+    for rank in reversed(grid):  # FEN starts from black's side (top)
+        empty = 0
+        fen_rank = ""
+        for piece in rank:
+            if piece == "":
+                empty += 1
+            else:
+                if empty:
+                    fen_rank += str(empty)
+                    empty = 0
+                fen_rank += piece
+        if empty:
+            fen_rank += str(empty)
+        fen_ranks.append(fen_rank)
+    return "/".join(fen_ranks) + " " + side_to_move
+
+
 class PikaFishTool(Tool):
     def __init__(self, *args, **kwargs):
         self.pikafish = PikaFish(*args, **kwargs)
-        
 
-    def pikafish_go(self, fen: str, depth: int) -> str:
-        """Analyze *fen* to *depth* and return a result string."""
+    def submit_board(self, grid: list[list[str]], side_to_move: str, depth: int) -> tuple[str, bool]:
+        """Convert *grid* to FEN, analyze with Pikafish, return best move and whether to re-screenshot."""
+        fen = grid_to_fen(grid, side_to_move)
         move, ponder = self.pikafish.go(fen, depth)
         if ponder:
-            return f"bestmove {move} ponder {ponder}"
-        return move
+            return f"bestmove {move} ponder {ponder}", False
+        return move, False
 
-    def call(self, name: str, args: str) -> str:
-        if name == "pikafish_go":
+    def call(self, name: str, args: str) -> tuple[str, bool]:
+        if name == "submit_board":
             try:
                 kwargs = json.loads(args)
-                return self.pikafish_go(**kwargs)
+                grid = [[str(c) for c in row] for row in kwargs["grid"]]
+                side = str(kwargs["side_to_move"])
+                depth = int(kwargs["depth"])
+                return self.submit_board(grid, side, depth)
             except Exception as e:
-                return str(e)
+                return str(e), False
         else:
-            return "tool name not found"
+            return "tool name not found", False
 
     def openai_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "type": "function",
                 "function": {
-                    "name": "pikafish_go",
-                    "description": "Analyze a xiangqi (Chinese chess) position given its FEN and return the best move.",
+                    "name": "submit_board",
+                    "description": (
+                        "Submit the xiangqi board position as a 10x9 grid of piece letters and get the best move. "
+                        "grid[0] is red's back rank (bottom), grid[9] is black's back rank (top). "
+                        "UPPERCASE = red, lowercase = black. "
+                        "Pieces: K=king, A=advisor, B=elephant, N=knight, R=rook, C=cannon, P=pawn. "
+                        'Use "" for empty squares.'
+                    ),
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "fen": {
+                            "grid": {
+                                "type": "array",
+                                "description": "10x9 grid of piece letters. 10 rows (rank 0 to 9 from red's bottom), each row has 9 columns (file a to i from red's left). Each cell is a piece letter (K/A/B/N/R/C/P uppercase=red, lowercase=black) or empty string.",
+                                "items": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "minItems": 9,
+                                    "maxItems": 9,
+                                },
+                                "minItems": 10,
+                                "maxItems": 10,
+                            },
+                            "side_to_move": {
                                 "type": "string",
-                                "description": "FEN string of the xiangqi position.",
+                                "enum": ["w", "b"],
+                                "description": '"w" if red to move, "b" if black to move.',
                             },
                             "depth": {
                                 "type": "integer",
                                 "description": "Search depth (higher = stronger but slower).",
                             },
                         },
-                        "required": ["fen", "depth"],
+                        "required": ["grid", "side_to_move", "depth"],
                     },
                 },
             },
