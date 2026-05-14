@@ -19,8 +19,8 @@ class MouseClick:
     
     def call(self, name: str, args: str) -> str:
         if name == "mouse_click":
-            kwargs = json.loads(args)
             try:
+                kwargs = json.loads(args)
                 return self.mouse_click(**kwargs)
             except Exception as e:
                 return str(e)
