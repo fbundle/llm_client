@@ -78,6 +78,7 @@ SYSTEM_PROMPT = (
     "  mouse_move   — move cursor to (x, y)\n"
     "  mouse_click  — click at (x, y) if given, or click in-place\n"
     "  mouse_drag   — drag from current position to (x, y)\n"
+    "  mouse_scroll — scroll the mouse wheel (positive=up, negative=down)\n"
     "\n"
     "Keyboard:\n"
     "  key_type     — type a string character-by-character\n"

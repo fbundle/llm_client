@@ -39,6 +39,10 @@ class MouseTool(Tool):
         pyautogui.drag(x * sw, y * sh, button=button)
         return ToolOutput(state_change=True, output="mouse_drag ok", error="")
 
+    def mouse_scroll(self, clicks: int) -> ToolOutput:
+        pyautogui.scroll(clicks)
+        return ToolOutput(state_change=True, output=f"mouse_scroll {clicks} ok", error="")
+
     def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name == "mouse_move":
             try:
@@ -57,6 +61,11 @@ class MouseTool(Tool):
             try:
                 button = str(kwargs.get("button", "left"))
                 return self.mouse_drag(float(kwargs["x"]), float(kwargs["y"]), button=button)
+            except Exception as e:
+                return ToolOutput(state_change=False, output="", error=str(e))
+        elif name == "mouse_scroll":
+            try:
+                return self.mouse_scroll(int(kwargs["clicks"]))
             except Exception as e:
                 return ToolOutput(state_change=False, output="", error=str(e))
         else:
@@ -133,6 +142,23 @@ class MouseTool(Tool):
                             },
                         },
                         "required": ["x", "y"],
+                    },
+                },
+            },
+            "mouse_scroll": {
+                "type": "function",
+                "function": {
+                    "name": "mouse_scroll",
+                    "description": "Scroll the mouse wheel. Positive clicks scroll up, negative scroll down.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "clicks": {
+                                "type": "integer",
+                                "description": "Number of scroll clicks. Positive = up, negative = down.",
+                            },
+                        },
+                        "required": ["clicks"],
                     },
                 },
             },

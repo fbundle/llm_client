@@ -106,21 +106,43 @@ class App:
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        style = ttk.Style()
+        style.configure("Red.TButton", foreground="red")
+        style.map("Red.TButton", foreground=[("disabled", "gray")])
+
         # Vertical split: screenshot area (top) | log area (bottom)
         vpane = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
         vpane.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         # ----- Top pane: left | screenshot | right -----
-        top = ttk.Frame(vpane)
-        top.grid_rowconfigure(0, weight=1)
-        top.grid_columnconfigure(0, weight=0)  # left panel
-        top.grid_columnconfigure(1, weight=1)  # screenshot
-        top.grid_columnconfigure(2, weight=0)  # right panel
+        self._hpane = hpane = ttk.PanedWindow(vpane, orient=tk.HORIZONTAL)
 
-        self._build_left_panel(top)
-        self._build_screenshot(top)
-        self._build_right_panel(top)
-        vpane.add(top, weight=1)
+        # Left panel — full
+        self._left_full = ttk.Frame(hpane, width=220)
+        self._build_left_panel(self._left_full)
+        hpane.add(self._left_full, weight=0)
+
+        # Left panel — collapsed (button only)
+        self._left_collapsed = ttk.Frame(hpane, width=36)
+        ttk.Button(self._left_collapsed, text="≡", command=self._toggle_left_panel, width=2).pack(anchor="nw", padx=(4, 0), pady=(4, 0))
+
+        scr = ttk.Frame(hpane)
+        self._build_screenshot(scr)
+        hpane.add(scr, weight=1)
+
+        # Right panel — full
+        self._right_full = ttk.Frame(hpane, width=280)
+        self._build_right_panel(self._right_full)
+        hpane.add(self._right_full, weight=0)
+
+        # Right panel — collapsed (button only)
+        self._right_collapsed = ttk.Frame(hpane, width=36)
+        ttk.Button(self._right_collapsed, text="≡", command=self._toggle_right_panel, width=2).pack(anchor="ne", padx=(0, 4), pady=(4, 0))
+
+        self._left_visible = True
+        self._right_visible = True
+
+        vpane.add(hpane, weight=1)
 
         # ----- Bottom pane: log + controls -----
         bottom = ttk.Frame(vpane)
@@ -148,19 +170,24 @@ class App:
         control.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         control.grid_columnconfigure(0, weight=1)
 
-        self._task_entry = ttk.Entry(control, font=("SF Mono", 12))
+        self._task_entry = tk.Text(control, height=3, font=("SF Mono", 12), wrap=tk.WORD)
         self._task_entry.grid(row=0, column=0, sticky="ew")
-        self._task_entry.bind("<Return>", lambda _e: self._run())
+        self._task_entry.bind("<Return>", lambda _e: self._run() or "break")
+        self._task_entry.bind("<Shift-Return>", lambda _e: self._task_entry.insert(tk.INSERT, "\n") or "break")
 
         self._run_btn = ttk.Button(control, text="Run", command=self._run)
         self._run_btn.grid(row=0, column=1, padx=(4, 0))
 
-        self._stop_btn = ttk.Button(control, text="Stop", command=self._stop, state=tk.DISABLED)
+        self._stop_btn = ttk.Button(control, text="Stop", command=self._stop, state=tk.DISABLED, style="Red.TButton")
         self._stop_btn.grid(row=0, column=2, padx=(4, 0))
 
     def _build_left_panel(self, parent: ttk.Frame) -> None:
-        frame = ttk.Frame(parent, padding=4)
-        frame.grid(row=0, column=0, sticky="ns")
+        # Collapse button — always visible at top
+        ttk.Button(parent, text="≡", command=self._toggle_left_panel, width=2).pack(anchor="nw", padx=(4, 0), pady=(4, 0))
+
+        # Content — collapsible (includes title + fields)
+        self._left_content = frame = ttk.Frame(parent, padding=4)
+        frame.pack(fill=tk.BOTH, expand=True)
         frame.grid_columnconfigure(0, weight=0)
 
         ttk.Label(frame, text="Environment", font=("SF Mono", 11, "bold")).grid(
@@ -188,12 +215,12 @@ class App:
         model_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_MODEL", self._model_var.get()))
 
         # Clear History button
-        ttk.Button(frame, text="Clear History", command=self._clear_history).grid(
+        ttk.Button(frame, text="Clear History", command=self._clear_history, style="Red.TButton").grid(
             row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
 
     def _build_screenshot(self, parent: ttk.Frame) -> None:
         self._scr_frame = ttk.Frame(parent)
-        self._scr_frame.grid(row=0, column=1, sticky="nsew", padx=4)
+        self._scr_frame.pack(fill=tk.BOTH, expand=True, padx=4)
         self._scr_frame.grid_rowconfigure(0, weight=1)
         self._scr_frame.grid_columnconfigure(0, weight=1)
 
@@ -201,12 +228,15 @@ class App:
         self._scr_label.grid(row=0, column=0, sticky="nsew")
 
     def _build_right_panel(self, parent: ttk.Frame) -> None:
-        frame = ttk.Frame(parent, padding=4)
-        frame.grid(row=0, column=2, sticky="ns")
-        frame.grid_rowconfigure(0, weight=1)
+        # Collapse button — always visible at top
+        ttk.Button(parent, text="≡", command=self._toggle_right_panel, width=2).pack(anchor="ne", padx=(0, 4), pady=(4, 0))
+
+        # Content — collapsible (includes title + fields)
+        self._right_content = frame = ttk.Frame(parent, padding=4)
+        frame.pack(fill=tk.BOTH, expand=True)
+        frame.grid_rowconfigure(1, weight=1)
         frame.grid_columnconfigure(0, weight=1)
 
-        # System prompt
         ttk.Label(frame, text="System Prompt", font=("SF Mono", 11, "bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 4))
 
@@ -232,7 +262,29 @@ class App:
             ttk.Checkbutton(frame, text=label, variable=var).grid(
                 row=3 + list(self._tool_vars).index(key), column=0, sticky="w")
 
-        frame.grid_rowconfigure(1, weight=1)
+    # ------------------------------------------------------------------
+    # Sidebar toggle
+    # ------------------------------------------------------------------
+
+    def _toggle_left_panel(self) -> None:
+        if self._left_visible:
+            self._hpane.forget(self._left_full)
+            self._hpane.insert(0, self._left_collapsed, weight=0)
+            self._left_visible = False
+        else:
+            self._hpane.forget(self._left_collapsed)
+            self._hpane.insert(0, self._left_full, weight=0)
+            self._left_visible = True
+
+    def _toggle_right_panel(self) -> None:
+        if self._right_visible:
+            self._hpane.forget(self._right_full)
+            self._hpane.add(self._right_collapsed, weight=0)
+            self._right_visible = False
+        else:
+            self._hpane.forget(self._right_collapsed)
+            self._hpane.add(self._right_full, weight=0)
+            self._right_visible = True
 
     # ------------------------------------------------------------------
     # Env persistence
@@ -305,14 +357,14 @@ class App:
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
-        task = self._task_entry.get().strip()
+        task = self._task_entry.get("1.0", "end-1c").strip()
         if not task:
             return
         if self._agent_thread is not None and self._agent_thread.is_alive():
             self._stop_event.set()
             self._agent_thread.join(timeout=2)
         self._run_id += 1
-        self._task_entry.delete(0, tk.END)
+        self._task_entry.delete("1.0", tk.END)
         self._stop_event.clear()
         self._task_entry.configure(state=tk.DISABLED)
         self._run_btn.configure(state=tk.DISABLED)
