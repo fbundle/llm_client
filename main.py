@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any
@@ -19,6 +20,17 @@ def must_get_env(key: str) -> str:
     val = os.environ.get(key)
     assert val is not None, f"missing env var: {key}"
     return val
+
+
+def _safe_json_args(args: str) -> str:
+    """Take only the first valid JSON object from a possibly concatenated string."""
+    try:
+        json.loads(args)
+        return args
+    except json.JSONDecodeError as e:
+        if e.msg == "Extra data":
+            return args[: e.pos]
+    return args
 
 
 def _stream_response(
@@ -127,7 +139,11 @@ def run_task(
     }]
 
     while True:
-        content, tool_calls = _stream_response(client, model, messages, tools)
+        try:
+            content, tool_calls = _stream_response(client, model, messages, tools)
+        except Exception as e:
+            print(f"\n[!] API error: {e}")
+            break
 
         if not tool_calls:
             print()
@@ -142,7 +158,7 @@ def run_task(
                     {
                         "id": tc["id"],
                         "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["args"]},
+                        "function": {"name": tc["name"], "arguments": _safe_json_args(str(tc["args"]))},
                     }
                     for tc in tool_calls
                 ],
@@ -187,7 +203,6 @@ def main() -> None:
             "Coordinates: (0,0)=top-left, (1,1)=bottom-right.\n"
             "The cursor icon shows mouse position.\n"
             "\n"
-            "You can call multiple tools sequentially in one turn. They execute in order.\n"
             "- mouse_move: move cursor to a position\n"
             "- mouse_click: provide x,y to move-and-click, or omit them to click in place\n"
             "- key_type: type text into focused field\n"
