@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 from dotenv import load_dotenv
@@ -144,6 +145,7 @@ def run_task(
 
         messages = _strip_images(messages)
 
+        time.sleep(0.5)
         print("[*] taking screenshot...")
         screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
         messages += [{

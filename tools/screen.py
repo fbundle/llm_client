@@ -12,6 +12,7 @@ _CURSOR_PATH = Path(__file__).resolve().parent / "cursor.png"
 _CURSOR_IMG = PIL_Image.open(_CURSOR_PATH)
 
 _RULER_SIZE = 36  # px margin for rulers
+_DRAW_RULERS = False
 
 
 def _draw_rulers(draw: ImageDraw.Draw, width: int, height: int) -> None:
@@ -81,6 +82,12 @@ def _annotate_screenshot(
     """Build a new image with rulers and cursor overlay from a raw screenshot."""
     mx, my = pyautogui.position()
     new_width, new_height = im.size
+
+    if not _DRAW_RULERS:
+        px = int(mx * scale_x * (new_width / orig_width))
+        py = int(my * scale_y * (new_height / orig_height))
+        _draw_cursor(im, px, py, new_width, new_height)
+        return im
 
     canvas = PIL_Image.new("RGB", (new_width + _RULER_SIZE, new_height + _RULER_SIZE), (30, 30, 30))
     canvas.paste(im, (_RULER_SIZE, _RULER_SIZE))
