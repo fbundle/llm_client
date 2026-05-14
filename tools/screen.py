@@ -7,6 +7,8 @@ from typing import Literal
 import pyautogui
 from PIL import Image as PIL_Image
 
+from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
+
 _CURSOR_PATH = Path(__file__).resolve().parent / "cursor.png"
 _CURSOR_IMG = PIL_Image.open(_CURSOR_PATH)
 
@@ -18,7 +20,7 @@ def _draw_cursor(
     content_width: int,
     content_height: int,
 ) -> None:
-    csize = max(16, min(content_width, content_height) // 50)
+    csize = max(8, min(content_width, content_height) // 214)
     cursor = _CURSOR_IMG.resize(
         (csize, int(csize * _CURSOR_IMG.height / _CURSOR_IMG.width)),
         PIL_Image.Resampling.LANCZOS,
@@ -63,3 +65,26 @@ def get_screenshot(
         format_lowercase=format.lower(),
         data=buffer_b64.decode("utf-8"),
     )
+
+
+class ScreenTool(Tool):
+    def take_screenshot(self) -> ToolOutput:
+        image = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
+        return ToolOutput(state_change=False, output="screenshot taken", error="", output_image=image)
+
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
+        if name == "take_screenshot":
+            return self.take_screenshot()
+        return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
+
+    def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
+        return {
+            "take_screenshot": {
+                "type": "function",
+                "function": {
+                    "name": "take_screenshot",
+                    "description": "Request a fresh screenshot to see the current screen state.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+        }

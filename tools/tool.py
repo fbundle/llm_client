@@ -11,6 +11,7 @@ class ToolOutput:
     state_change: bool
     output: str
     error: str
+    output_image: str = ""
 
 
 class Tool(Protocol):
@@ -24,6 +25,8 @@ class ToolList(Tool):
         self._lookup: dict[str, Tool] = {}
         for t in tools:
             for name in t.tool_schemas():
+                if name in self._lookup:
+                    raise ValueError(f"duplicate tool name: {name}")
                 self._lookup[name] = t
 
     def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:

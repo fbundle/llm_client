@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -26,7 +25,7 @@ from tools.js_runtime import JSRuntimeTool
 from tools.keyboard import KeyboardTool
 from tools.mouse import MouseTool
 from tools.pikafish import PikaFishTool
-from tools.screen import get_screenshot
+from tools.screen import ScreenTool
 from tools.tool import ToolList, ToolOutput
 
 
@@ -122,6 +121,14 @@ def _execute_tools(
             tool_call_id=tc.id,
             content=out.output,
         ))
+        if out.output_image:
+            results.append(ChatCompletionUserMessageParam(
+                role="user",
+                content=[
+                    ChatCompletionContentPartTextParam(type="text", text="Latest screenshot."),
+                    ChatCompletionContentPartImageParam(type="image_url", image_url=ImageURL(url=out.output_image, detail="low")),
+                ],
+            ))
         if out.error:
             print(f"[!] tool error: {out.error}")
             results.append(ChatCompletionUserMessageParam(
@@ -141,16 +148,9 @@ def run_task(
     dispatcher: ToolList,
     task: str,
 ) -> None:
-    print("[*] taking screenshot...")
-    screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
-    print("[*] sending to model...")
-
     messages: list[ChatCompletionMessageParam] = [system, ChatCompletionUserMessageParam(
         role="user",
-        content=[
-            ChatCompletionContentPartTextParam(type="text", text=task),
-            ChatCompletionContentPartImageParam(type="image_url", image_url=ImageURL(url=screenshot, detail="low")),
-        ],
+        content=[ChatCompletionContentPartTextParam(type="text", text=task)],
     )]
 
     while True:
@@ -165,7 +165,7 @@ def run_task(
             break
 
         print()
-        tool_results, state_changed = _execute_tools(tool_calls, dispatcher)
+        tool_results, _ = _execute_tools(tool_calls, dispatcher)
         messages += [
             ChatCompletionAssistantMessageParam(
                 role="assistant",
@@ -182,18 +182,6 @@ def run_task(
             *tool_results,
         ]
 
-        if state_changed:
-            time.sleep(0.5)
-            print("[*] taking screenshot...")
-            screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
-            messages += [ChatCompletionUserMessageParam(
-                role="user",
-                content=[
-                    ChatCompletionContentPartTextParam(type="text", text="Latest screenshot. Continue the task."),
-                    ChatCompletionContentPartImageParam(type="image_url", image_url=ImageURL(url=screenshot, detail="low")),
-                ],
-            )]
-
 
 def main() -> None:
     load_dotenv()
@@ -208,7 +196,8 @@ def main() -> None:
     keyboard = KeyboardTool()
     pikafish = PikaFishTool()
     js = JSRuntimeTool()
-    dispatcher = ToolList(mouse, keyboard, pikafish, js)
+    screen = ScreenTool()
+    dispatcher = ToolList(mouse, keyboard, pikafish, js, screen)
     tools: list[ChatCompletionFunctionToolParam] = list(dispatcher.tool_schemas().values())
 
     system: ChatCompletionSystemMessageParam = {
@@ -216,13 +205,14 @@ def main() -> None:
         "content": (
             "You control a computer. Each message includes a screenshot.\n"
             "Coordinates: (0,0)=top-left, (1,1)=bottom-right.\n"
-            "The cursor icon shows mouse position.\n"
+            "The cursor icon is drawn on — it won't change shape (always an arrow).\n"
             "\n"
             "- mouse_move: move cursor to a position\n"
             "- mouse_click: provide x,y to move-and-click, or omit them to click in place\n"
             "- key_type: type text into focused field\n"
             "- key_press: press a single key (enter, tab, escape, etc.)\n"
             "- key_hotkey: press combo like ctrl+t\n"
+            "- take_screenshot: request a fresh screenshot of the screen\n"
             "\n"
             "Stop calling tools when the task is done."
         ),
