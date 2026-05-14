@@ -1,3 +1,6 @@
+from typing import Protocol
+
+
 class Tool(Protocol):
     def call(self, name: str, args: str) -> str: ...
-    def openai_tools(self) -> list[dict[str, object]]:
+    def openai_tools(self) -> list[dict[str, object]]: ...
