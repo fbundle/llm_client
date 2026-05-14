@@ -12,9 +12,10 @@ class KeyboardTool(Tool):
         pyautogui.typewrite(text)
         return ToolOutput(state_change=True, output=f"key_type {len(text)} chars ok", error="")
 
-    def key_hotkey(self, keys: list[str]) -> ToolOutput:
-        pyautogui.hotkey(*keys)
-        return ToolOutput(state_change=True, output=f"key_hotkey {'+'.join(keys)} ok", error="")
+    # Kept for reference — removed from dispatch and tool_schemas.
+    # def key_hotkey(self, keys: list[str]) -> ToolOutput:
+    #     pyautogui.hotkey(*keys)
+    #     return ToolOutput(state_change=True, output=f"key_hotkey {'+'.join(keys)} ok", error="")
 
     def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name == "key_press":
@@ -25,12 +26,6 @@ class KeyboardTool(Tool):
         elif name == "key_type":
             try:
                 return self.key_type(str(kwargs["text"]))
-            except Exception as e:
-                return ToolOutput(state_change=False, output="", error=str(e))
-        elif name == "key_hotkey":
-            try:
-                keys = [str(k) for k in kwargs["keys"]]
-                return self.key_hotkey(keys)
             except Exception as e:
                 return ToolOutput(state_change=False, output="", error=str(e))
         else:
@@ -69,24 +64,6 @@ class KeyboardTool(Tool):
                             },
                         },
                         "required": ["text"],
-                    },
-                },
-            },
-            "key_hotkey": {
-                "type": "function",
-                "function": {
-                    "name": "key_hotkey",
-                    "description": "Press keys together. 'command' (⌘) and 'ctrl' (⌃) are DIFFERENT — use the correct one for the action.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "keys": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Keys to press together. On macOS, use 'command' for ⌘ shortcuts (e.g. ['command', 't']), 'ctrl' for ⌃ (e.g. ['ctrl', 'c']).",
-                            },
-                        },
-                        "required": ["keys"],
                     },
                 },
             },
