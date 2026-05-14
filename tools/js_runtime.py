@@ -2,7 +2,7 @@ import json
 
 from py_mini_racer import MiniRacer
 
-from tools.tool import Tool, ToolOutput
+from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
 class JSRuntimeTool(Tool):
@@ -16,18 +16,18 @@ class JSRuntimeTool(Tool):
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
 
-    def call(self, name: str, args: str) -> ToolOutput:
+    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput:
         if name != "js_eval":
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
         try:
-            kwargs = json.loads(args)
+            kwargs = json.loads(kwargs_str)
             return self.js_eval(str(kwargs["code"]))
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
 
-    def openai_tools(self) -> list[dict[str, object]]:
-        return [
-            {
+    def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
+        return {
+            "js_eval": {
                 "type": "function",
                 "function": {
                     "name": "js_eval",
@@ -48,4 +48,4 @@ class JSRuntimeTool(Tool):
                     },
                 },
             },
-        ]
+        }

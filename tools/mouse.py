@@ -4,7 +4,7 @@ from typing import Literal
 
 import pyautogui
 
-from tools.tool import Tool, ToolOutput
+from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 class MouseTool(Tool):
     def mouse_move(self, x: float, y: float) -> ToolOutput:
@@ -28,9 +28,9 @@ class MouseTool(Tool):
         pyautogui.click(button=button)
         return ToolOutput(state_change=True, output="mouse_click ok", error="")
 
-    def call(self, name: str, args: str) -> ToolOutput:
+    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput:
         try:
-            kwargs = json.loads(args)
+            kwargs = json.loads(kwargs_str)
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
 
@@ -50,7 +50,7 @@ class MouseTool(Tool):
         else:
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
-    def openai_tools(self) -> list:
+    def tool_schemas(self) -> list[ChatCompletionFunctionToolParam]:
         return [
             {
                 "type": "function",

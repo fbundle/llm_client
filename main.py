@@ -13,7 +13,7 @@ from tools.keyboard import KeyboardTool
 from tools.mouse import MouseTool
 from tools.pikafish import PikaFishTool
 from tools.screen import get_screenshot
-from tools.tool import Dispatcher
+from tools.tool import ToolList
 
 
 def must_get_env(key: str) -> str:
@@ -82,14 +82,14 @@ def _stream_response(
 
 def _execute_tools(
     tool_calls: list[dict[str, Any]],
-    dispatcher: Dispatcher,
+    dispatcher: ToolList,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for tc in tool_calls:
         name = str(tc["name"])
         args = str(tc["args"])
         print(f"[*] tool call: {name}({args})")
-        out = dispatcher.call(name, args)
+        out = dispatcher.dispatch(name, args)
         print(f"[*] tool output: {out.output}")
         results.append({
             "role": "tool",
@@ -122,7 +122,7 @@ def run_task(
     model: str,
     tools: list[dict[str, Any]],
     system: dict[str, Any],
-    dispatcher: Dispatcher,
+    dispatcher: ToolList,
     task: str,
 ) -> None:
     """Run a single task, keeping text history but only the latest screenshot."""
@@ -193,8 +193,8 @@ def main() -> None:
     keyboard = KeyboardTool()
     pikafish = PikaFishTool()
     js = JSRuntimeTool()
-    dispatcher = Dispatcher(mouse, keyboard, pikafish, js)
-    tools = dispatcher.openai_tools()
+    dispatcher = ToolList(mouse, keyboard, pikafish, js)
+    tools = dispatcher.tool_schemas()
 
     system: dict[str, Any] = {
         "role": "system",

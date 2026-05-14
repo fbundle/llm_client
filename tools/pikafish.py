@@ -6,7 +6,7 @@ import selectors
 import subprocess
 from pathlib import Path
 
-from tools.tool import Tool, ToolOutput
+from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 _BINARY = str(Path(__file__).resolve().parent.parent / "vendor" / "Pikafish" / "src" / "pikafish")
 
@@ -128,7 +128,7 @@ class PikaFishTool(Tool):
             return ToolOutput(state_change=False, output=f"bestmove {move} ponder {ponder}", error="")
         return ToolOutput(state_change=False, output=move, error="")
 
-    def call(self, name: str, args: str) -> ToolOutput:
+    def dispatch(self, name: str, args: str) -> ToolOutput:
         if name != "submit_board":
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
         try:
@@ -137,7 +137,7 @@ class PikaFishTool(Tool):
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
 
-    def openai_tools(self) -> list[dict[str, object]]:
+    def tool_schemas(self) -> list[ChatCompletionFunctionToolParam]:
         return [
             {
                 "type": "function",

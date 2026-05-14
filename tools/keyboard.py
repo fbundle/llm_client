@@ -2,7 +2,7 @@ import json
 
 import pyautogui
 
-from tools.tool import Tool, ToolOutput
+from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
 class KeyboardTool(Tool):
@@ -18,7 +18,7 @@ class KeyboardTool(Tool):
         pyautogui.hotkey(*keys)
         return ToolOutput(state_change=True, output=f"key_hotkey {'+'.join(keys)} ok", error="")
 
-    def call(self, name: str, args: str) -> ToolOutput:
+    def dispatch(self, name: str, args: str) -> ToolOutput:
         try:
             kwargs = json.loads(args)
         except Exception as e:
@@ -43,7 +43,7 @@ class KeyboardTool(Tool):
         else:
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
-    def openai_tools(self) -> list:
+    def tool_schemas(self) -> list[ChatCompletionFunctionToolParam]:
         return [
             {
                 "type": "function",
