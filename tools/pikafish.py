@@ -44,6 +44,23 @@ class PikaFish:
         ponder = parts[3] if len(parts) > 3 and parts[2] == "ponder" else ""
         return move, ponder
 
+    def pikafish_go(self, fen: str, depth: int) -> str:
+        """Analyze *fen* to *depth* and return a result string."""
+        move, ponder = self.go(fen, depth)
+        if ponder:
+            return f"bestmove {move} ponder {ponder}"
+        return move
+
+    def call(self, name: str, args: str) -> str:
+        if name == "pikafish_go":
+            try:
+                kwargs = json.loads(args)
+                return self.pikafish_go(**kwargs)
+            except Exception as e:
+                return str(e)
+        else:
+            return "tool name not found"
+
     def finish(self) -> None:
         """Gracefully shut down the engine."""
         if self._p is None:
