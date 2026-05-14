@@ -12,6 +12,9 @@ from app import (
 
 
 class CliCallbacks:
+    def on_extra_content(self, data: str) -> None:
+        print(f"\033[2m[extra_content: {data}]\033[0m")
+
     def on_reasoning(self, token: str) -> None:
         print(f"\033[2m{token}\033[0m", end="", flush=True)
 

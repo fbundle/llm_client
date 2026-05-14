@@ -42,11 +42,10 @@ class ToolCall:
     id: str = ""
     name: str = ""
     kwargs_str: str = ""
-    # Gemini-specific: thought_signature is NOT part of the OpenAI API.
-    # Gemini requires it echoed back on every function call, otherwise the
-    # API returns a 400 error. We capture it from the streaming delta and
-    # include it when constructing the assistant message.
-    thought_signature: str = ""
+    # Gemini-specific: extra_content.google.thought_signature must be
+    # echoed back verbatim on every function call, or Gemini returns 400.
+    # We capture the entire extra_content blob and pass it through as-is.
+    extra_content: dict[str, object] | None = None
 
 
 def safe_json_kwargs(kwargs_str: str) -> str:
@@ -60,6 +59,7 @@ def safe_json_kwargs(kwargs_str: str) -> str:
 
 
 class Callbacks(Protocol):
+    def on_extra_content(self, data: str) -> None: ...
     def on_reasoning(self, token: str) -> None: ...
     def on_content(self, token: str) -> None: ...
     def on_tool_call(self, name: str, kwargs_str: str) -> None: ...
@@ -146,19 +146,16 @@ def stream_response(
                 tc = tool_call_buf[idx]
                 if tc_delta.id:
                     tc.id = tc_delta.id
-                # Gemini-specific: thought_signature may appear on the
-                # delta itself (not nested under .function). Not standard
-                # OpenAI API. Must be echoed back unchanged.
-                if ts := getattr(tc_delta, "thought_signature", ""):
-                    tc.thought_signature = ts
+                # Gemini-specific: capture the entire extra_content blob
+                # and echo it back verbatim. Not standard OpenAI API.
+                if ec := getattr(tc_delta, "extra_content", None):
+                    tc.extra_content = ec.model_dump() if hasattr(ec, "model_dump") else dict(ec)
+                    cb.on_extra_content(json.dumps(tc.extra_content))
                 if tc_delta.function:
                     if tc_delta.function.name:
                         tc.name = tc_delta.function.name
                     if tc_delta.function.arguments:
                         tc.kwargs_str += tc_delta.function.arguments
-                    # Also check nested under .function (Gemini variant).
-                    if ts := getattr(tc_delta.function, "thought_signature", ""):
-                        tc.thought_signature = ts
 
     tool_calls = sorted(tool_call_buf.values(), key=lambda t: t.id)
     return content_buf, tool_calls
@@ -249,18 +246,16 @@ def run_task(
 
 
 def _make_tool_call_param(tc: ToolCall) -> ChatCompletionMessageFunctionToolCallParam:
-    func = {
-        "name": tc.name,
-        "arguments": safe_json_kwargs(tc.kwargs_str),
-    }
-    # Gemini-specific: thought_signature must be echoed back inside
-    # the functionCall part, or the API returns 400. Not standard
-    # OpenAI API. May also appear at the top-level tool call param.
-    if tc.thought_signature:
-        func["thought_signature"] = tc.thought_signature  # type: ignore[typeddict-unknown-key]
-
-    return {
+    p: ChatCompletionMessageFunctionToolCallParam = {
         "id": tc.id,
         "type": "function",
-        "function": func,
+        "function": {
+            "name": tc.name,
+            "arguments": safe_json_kwargs(tc.kwargs_str),
+        },
     }
+    # Gemini-specific: echo back the entire extra_content blob verbatim.
+    # Not standard OpenAI API. Without this Gemini returns 400.
+    if tc.extra_content is not None:
+        p["extra_content"] = tc.extra_content  # type: ignore[typeddict-unknown-key]
+    return p
