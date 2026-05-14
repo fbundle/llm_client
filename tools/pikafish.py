@@ -6,6 +6,8 @@ import selectors
 import subprocess
 from pathlib import Path
 
+from tools.tool import Tool
+
 _BINARY = str(Path(__file__).resolve().parent.parent / "vendor" / "Pikafish" / "src" / "pikafish")
 
 
@@ -52,48 +54,6 @@ class PikaFish:
         self._p.stdin.close()
         self._p.wait(timeout=2)
         self._p = None
-
-    def pikafish_go(self, fen: str, depth: int) -> str:
-        """Analyze *fen* to *depth* and return a result string."""
-        move, ponder = self.go(fen, depth)
-        if ponder:
-            return f"bestmove {move} ponder {ponder}"
-        return move
-
-    def call(self, name: str, args: str) -> str:
-        if name == "pikafish_go":
-            try:
-                kwargs = json.loads(args)
-                return self.pikafish_go(**kwargs)
-            except Exception as e:
-                return str(e)
-        else:
-            return "tool name not found"
-
-    def openai_tools(self) -> list[dict[str, object]]:
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "pikafish_go",
-                    "description": "Analyze a xiangqi (Chinese chess) position given its FEN and return the best move.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "fen": {
-                                "type": "string",
-                                "description": "FEN string of the xiangqi position.",
-                            },
-                            "depth": {
-                                "type": "integer",
-                                "description": "Search depth (higher = stronger but slower).",
-                            },
-                        },
-                        "required": ["fen", "depth"],
-                    },
-                },
-            },
-        ]
 
     def _send(self, line: str) -> None:
         assert self._p is not None and self._p.stdin is not None
@@ -152,3 +112,51 @@ class PikaFish:
                             return out.decode(errors="replace").rstrip("\n")
         finally:
             sel.close()
+
+
+class PikaFishTool(Tool):
+    def __init__(self, *args, **kwrags):
+        self.pikafish = PikaFish(*args, **kwrags)
+        
+
+    def pikafish_go(self, fen: str, depth: int) -> str:
+        """Analyze *fen* to *depth* and return a result string."""
+        move, ponder = self.pikafish.go(fen, depth)
+        if ponder:
+            return f"bestmove {move} ponder {ponder}"
+        return move
+
+    def call(self, name: str, args: str) -> str:
+        if name == "pikafish_go":
+            try:
+                kwargs = json.loads(args)
+                return self.pikafish_go(**kwargs)
+            except Exception as e:
+                return str(e)
+        else:
+            return "tool name not found"
+
+    def openai_tools(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "pikafish_go",
+                    "description": "Analyze a xiangqi (Chinese chess) position given its FEN and return the best move.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "fen": {
+                                "type": "string",
+                                "description": "FEN string of the xiangqi position.",
+                            },
+                            "depth": {
+                                "type": "integer",
+                                "description": "Search depth (higher = stronger but slower).",
+                            },
+                        },
+                        "required": ["fen", "depth"],
+                    },
+                },
+            },
+        ]

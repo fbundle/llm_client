@@ -5,7 +5,9 @@ from typing import Literal
 
 import pyautogui
 
-class MouseClick:
+from tools.tool import Tool
+
+class MouseClickTool(Tool):
     def mouse_click(
         self,
         x: float,
