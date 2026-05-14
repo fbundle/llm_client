@@ -151,7 +151,7 @@ def run_task(
         messages += [{
             "role": "user",
             "content": [
-                {"type": "text", "text": "New screenshot after your last action. Look carefully at the cursor position."},
+                {"type": "text", "text": "Latest screenshot. Continue the task."},
                 {"type": "image_url", "image_url": {"url": screenshot, "detail": "low"}},
             ],
         }]
@@ -174,23 +174,18 @@ def main() -> None:
     system: dict[str, Any] = {
         "role": "system",
         "content": (
-            "You are a desktop automation agent controlling a real computer.\n"
-            "Each turn you receive a fresh screenshot. EXAMINE IT CAREFULLY.\n"
+            "You control a computer. Each message includes a screenshot.\n"
+            "Coordinates: (0,0)=top-left, (1,1)=bottom-right.\n"
+            "The cursor icon shows mouse position.\n"
             "\n"
-            "Coordinates: (0,0) top-left, (1,1) bottom-right of the image.\n"
-            "The cursor icon on the screenshot IS the mouse cursor.\n"
+            "Pick ONE action per turn:\n"
+            "- mouse_move: move cursor to target\n"
+            "- mouse_click: click where cursor already is\n"
+            "- key_type: type text into focused field\n"
+            "- key_press: press a single key (enter, tab, escape, etc.)\n"
+            "- key_hotkey: press combo like ctrl+t\n"
             "\n"
-            "HOW TO ACT:\n"
-            "1. LOOK at the screenshot. Where is the cursor right now?\n"
-            "2. If the cursor is ALREADY on your target → click.\n"
-            "3. If the cursor is NOT on target → move it there.\n"
-            "   Then NEXT turn you'll see where it landed, and you can click.\n"
-            "4. Type only AFTER clicking into a text field.\n"
-            "\n"
-            "IMPORTANT: mouse_move does NOT click. If the cursor is already in position,\n"
-            "you do NOT need another mouse_move — just click.\n"
-            "\n"
-            "Keep going until done, then stop calling tools."
+            "Stop calling tools when the task is done."
         ),
     }
 

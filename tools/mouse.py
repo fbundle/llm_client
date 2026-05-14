@@ -47,21 +47,21 @@ class MouseTool(Tool):
                 "function": {
                     "name": "mouse_move",
                     "description": (
-                        "Move the cursor to a fractional position relative to the screen. "
-                        "x and y are floats between 0.0 and 1.0. "
-                        "(0.0, 0.0) is top-left, (0.5, 0.5) is center, (1.0, 1.0) is bottom-right. "
-                        "Use this to position the cursor over a board square before clicking."
+                        "Move cursor to a position. x and y MUST be between 0.0 and 1.0 — "
+                        "they are FRACTIONS of the screen, NOT pixel values. "
+                        "0.0=left/top edge, 0.5=center, 1.0=right/bottom edge. "
+                        "Example: to click a button at the center of the screen, use x=0.5 y=0.5."
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "x": {
                                 "type": "number",
-                                "description": "Fractional horizontal position. Must be between 0.0 and 1.0.",
+                                "description": "Fraction of screen width (0.0 to 1.0). NOT pixels.",
                             },
                             "y": {
                                 "type": "number",
-                                "description": "Fractional vertical position. Must be between 0.0 and 1.0.",
+                                "description": "Fraction of screen height (0.0 to 1.0). NOT pixels.",
                             },
                         },
                         "required": ["x", "y"],
