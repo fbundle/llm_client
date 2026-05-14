@@ -161,10 +161,10 @@ def main() -> None:
     load_dotenv()
 
     client = OpenAI(
-        base_url=must_get_env("LMS_BASE_URL"),
-        api_key=must_get_env("LMS_API_KEY"),
+        base_url=must_get_env("OPENAI_BASE_URL"),
+        api_key=must_get_env("OPENAI_API_KEY"),
     )
-    model = must_get_env("LMS_MODEL")
+    model = must_get_env("OPENAI_MODEL")
 
     mouse = MouseTool()
     keyboard = KeyboardTool()
