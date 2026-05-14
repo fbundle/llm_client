@@ -44,6 +44,15 @@ class PikaFish:
         ponder = parts[3] if len(parts) > 3 and parts[2] == "ponder" else ""
         return move, ponder
 
+    def finish(self) -> None:
+        """Gracefully shut down the engine."""
+        if self._p is None:
+            return
+        self._send("quit")
+        self._p.stdin.close()
+        self._p.wait(timeout=2)
+        self._p = None
+
     def pikafish_go(self, fen: str, depth: int) -> str:
         """Analyze *fen* to *depth* and return a result string."""
         move, ponder = self.go(fen, depth)
@@ -60,15 +69,6 @@ class PikaFish:
                 return str(e)
         else:
             return "tool name not found"
-
-    def finish(self) -> None:
-        """Gracefully shut down the engine."""
-        if self._p is None:
-            return
-        self._send("quit")
-        self._p.stdin.close()
-        self._p.wait(timeout=2)
-        self._p = None
 
     def openai_tools(self) -> list[dict[str, object]]:
         return [
