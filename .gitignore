@@ -249,5 +249,5 @@ __marimo__/
 .streamlit/secrets.toml
 
 # others
-lab
 run_claude
+tmp
