@@ -187,7 +187,7 @@ def main() -> None:
             "Coordinates: (0,0)=top-left, (1,1)=bottom-right.\n"
             "The cursor icon shows mouse position.\n"
             "\n"
-            "Pick ONE action per turn:\n"
+            "You can call multiple tools sequentially in one turn. They execute in order.\n"
             "- mouse_move: move cursor to target\n"
             "- mouse_click: click where cursor already is\n"
             "- key_type: type text into focused field\n"

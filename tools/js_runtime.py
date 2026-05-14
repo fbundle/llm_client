@@ -1,6 +1,6 @@
 import json
 
-from mini_racer import MiniRacer
+from py_mini_racer import MiniRacer
 
 from tools.tool import Tool, ToolOutput
 
