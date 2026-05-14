@@ -1,42 +1,102 @@
 from __future__ import annotations
 
 import base64
+import os
 import threading
 from io import BytesIO
-from typing import Callable
+from pathlib import Path
 
+from dotenv import load_dotenv
+from openai import OpenAI
 from PIL import Image as PIL_Image, ImageTk
 import tkinter as tk
 from tkinter import ttk
 
-from dotenv import load_dotenv
-
 from app import (
+    SYSTEM_PROMPT,
     Callbacks,
     create_client,
     create_dispatcher,
-    must_get_env,
     run_task,
 )
-from tools.screen import get_screenshot
+from tools.js_runtime import JSRuntimeTool
+from tools.keyboard import KeyboardTool
+from tools.mouse import MouseTool
+from tools.pikafish import PikaFishTool
+from tools.screen import ScreenTool, get_screenshot
 
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+
+# ------------------------------------------------------------------
+# .env persistence
+# ------------------------------------------------------------------
+
+def _read_env() -> dict[str, str]:
+    """Return all KEY=VALUE pairs from .env (stripped of quotes)."""
+    result: dict[str, str] = {}
+    if not _ENV_PATH.exists():
+        return result
+    for line in _ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        result[k.strip()] = v.strip().strip("\"'")
+    return result
+
+
+def _write_env(key: str, value: str) -> None:
+    """Update *key* in the .env file, preserving other lines and comments."""
+    lines: list[str] = []
+    found = False
+    if _ENV_PATH.exists():
+        for line in _ENV_PATH.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                k = stripped.split("=", 1)[0].strip()
+                if k == key:
+                    lines.append(f'{key}="{value}"')
+                    found = True
+                    continue
+            lines.append(line)
+    if not found:
+        lines.append(f'{key}="{value}"')
+    _ENV_PATH.write_text("\n".join(lines) + "\n")
+
+
+# ------------------------------------------------------------------
+# GUI
+# ------------------------------------------------------------------
 
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("LLM Desktop Agent")
-        self.root.geometry("1200x900")
+        self.root.geometry("1000x600")
 
         self._stop_event = threading.Event()
         self._agent_thread: threading.Thread | None = None
-        self._run_id = 0  # generation counter to reject stale _on_done calls
+        self._run_id = 0
 
         self._pending_logs: list[tuple[str, str]] = []
         self._pending_screenshot: str | None = None
         self._lock = threading.Lock()
 
         self._photo: ImageTk.PhotoImage | None = None
+        self._env = _read_env()
 
+        # Create tool instances once — they hold state (JS runtime,
+        # chess engine process, etc.)
+        self._tool_instances = {
+            "mouse": MouseTool(),
+            "keyboard": KeyboardTool(),
+            "pikafish": PikaFishTool(),
+            "js_runtime": JSRuntimeTool(),
+            "screen": ScreenTool(),
+        }
+
+        self._tool_vars: dict[str, tk.BooleanVar] = {}
         self._build_ui()
         self._flush_updates()
         self._refresh_screenshot()
@@ -46,26 +106,30 @@ class App:
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_rowconfigure(1, weight=0)
-        self.root.grid_columnconfigure(0, weight=1)
+        # Vertical split: screenshot area (top) | log area (bottom)
+        vpane = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
+        vpane.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        # Screenshot
-        self._scr_frame = ttk.Frame(self.root)
-        self._scr_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 2))
-        self._scr_frame.grid_rowconfigure(0, weight=1)
-        self._scr_frame.grid_columnconfigure(0, weight=1)
+        # ----- Top pane: left | screenshot | right -----
+        top = ttk.Frame(vpane)
+        top.grid_rowconfigure(0, weight=1)
+        top.grid_columnconfigure(0, weight=0)  # left panel
+        top.grid_columnconfigure(1, weight=1)  # screenshot
+        top.grid_columnconfigure(2, weight=0)  # right panel
 
-        self._scr_label = ttk.Label(self._scr_frame, background="#1e1e1e")
-        self._scr_label.grid(row=0, column=0, sticky="nsew")
+        self._build_left_panel(top)
+        self._build_screenshot(top)
+        self._build_right_panel(top)
+        vpane.add(top, weight=1)
 
-        # Bottom: log + controls
-        bottom = ttk.Frame(self.root)
-        bottom.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 4))
+        # ----- Bottom pane: log + controls -----
+        bottom = ttk.Frame(vpane)
+        vpane.add(bottom, weight=1)
         bottom.grid_rowconfigure(0, weight=1)
         bottom.grid_columnconfigure(0, weight=1)
 
-        self._log = tk.Text(bottom, height=8, wrap=tk.WORD, state=tk.DISABLED, font=("SF Mono", 11))
+        self._log = tk.Text(bottom, height=8, wrap=tk.WORD, state=tk.DISABLED,
+                            font=("SF Mono", 11))
         self._log.grid(row=0, column=0, sticky="nsew")
 
         self._log.tag_configure("reasoning", foreground="gray")
@@ -93,6 +157,100 @@ class App:
 
         self._stop_btn = ttk.Button(control, text="Stop", command=self._stop, state=tk.DISABLED)
         self._stop_btn.grid(row=0, column=2, padx=(4, 0))
+
+    def _build_left_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.Frame(parent, padding=4)
+        frame.grid(row=0, column=0, sticky="ns")
+        frame.grid_columnconfigure(0, weight=0)
+
+        ttk.Label(frame, text="Environment", font=("SF Mono", 11, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
+
+        # BASE_URL
+        ttk.Label(frame, text="BASE_URL").grid(row=1, column=0, sticky="e", padx=(0, 4))
+        self._url_var = tk.StringVar(value=self._env.get("OPENAI_BASE_URL", ""))
+        url_entry = ttk.Entry(frame, textvariable=self._url_var, width=28)
+        url_entry.grid(row=1, column=1, sticky="ew", pady=(0, 2))
+        url_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_BASE_URL", self._url_var.get()))
+
+        # API_KEY (masked)
+        ttk.Label(frame, text="API_KEY").grid(row=2, column=0, sticky="e", padx=(0, 4))
+        self._key_var = tk.StringVar(value=self._env.get("OPENAI_API_KEY", ""))
+        key_entry = ttk.Entry(frame, textvariable=self._key_var, width=28, show="*")
+        key_entry.grid(row=2, column=1, sticky="ew", pady=(0, 2))
+        key_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_API_KEY", self._key_var.get()))
+
+        # MODEL
+        ttk.Label(frame, text="MODEL").grid(row=3, column=0, sticky="e", padx=(0, 4))
+        self._model_var = tk.StringVar(value=self._env.get("OPENAI_MODEL", ""))
+        model_entry = ttk.Entry(frame, textvariable=self._model_var, width=28)
+        model_entry.grid(row=3, column=1, sticky="ew", pady=(0, 2))
+        model_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_MODEL", self._model_var.get()))
+
+        # Clear History button
+        ttk.Button(frame, text="Clear History", command=self._clear_history).grid(
+            row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+
+    def _build_screenshot(self, parent: ttk.Frame) -> None:
+        self._scr_frame = ttk.Frame(parent)
+        self._scr_frame.grid(row=0, column=1, sticky="nsew", padx=4)
+        self._scr_frame.grid_rowconfigure(0, weight=1)
+        self._scr_frame.grid_columnconfigure(0, weight=1)
+
+        self._scr_label = ttk.Label(self._scr_frame, background="#1e1e1e")
+        self._scr_label.grid(row=0, column=0, sticky="nsew")
+
+    def _build_right_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.Frame(parent, padding=4)
+        frame.grid(row=0, column=2, sticky="ns")
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
+        # System prompt
+        ttk.Label(frame, text="System Prompt", font=("SF Mono", 11, "bold")).grid(
+            row=0, column=0, sticky="w", pady=(0, 4))
+
+        self._sys_text = tk.Text(frame, width=34, height=14, wrap=tk.WORD,
+                                 font=("SF Mono", 10))
+        self._sys_text.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
+        self._sys_text.insert("1.0", SYSTEM_PROMPT)
+
+        # Tools
+        ttk.Label(frame, text="Tools", font=("SF Mono", 11, "bold")).grid(
+            row=2, column=0, sticky="w", pady=(0, 4))
+
+        tool_names = [
+            ("mouse", "Mouse"),
+            ("keyboard", "Keyboard"),
+            ("pikafish", "Pikafish"),
+            ("js_runtime", "JS Runtime"),
+            ("screen", "Screen"),
+        ]
+        for key, label in tool_names:
+            var = tk.BooleanVar(value=True)
+            self._tool_vars[key] = var
+            ttk.Checkbutton(frame, text=label, variable=var).grid(
+                row=3 + list(self._tool_vars).index(key), column=0, sticky="w")
+
+        frame.grid_rowconfigure(1, weight=1)
+
+    # ------------------------------------------------------------------
+    # Env persistence
+    # ------------------------------------------------------------------
+
+    def _save_env_var(self, key: str, value: str) -> None:
+        if value:
+            os.environ[key] = value
+            _write_env(key, value)
+
+    # ------------------------------------------------------------------
+    # Clear history
+    # ------------------------------------------------------------------
+
+    def _clear_history(self) -> None:
+        self._log.configure(state=tk.NORMAL)
+        self._log.delete("1.0", tk.END)
+        self._log.configure(state=tk.DISABLED)
 
     # ------------------------------------------------------------------
     # Thread-safe UI helpers
@@ -150,31 +308,33 @@ class App:
         task = self._task_entry.get().strip()
         if not task:
             return
-        # Interrupt any running task
         if self._agent_thread is not None and self._agent_thread.is_alive():
             self._stop_event.set()
             self._agent_thread.join(timeout=2)
         self._run_id += 1
         self._task_entry.delete(0, tk.END)
         self._stop_event.clear()
+        self._task_entry.configure(state=tk.DISABLED)
         self._run_btn.configure(state=tk.DISABLED)
         self._stop_btn.configure(state=tk.NORMAL)
 
         self._push_log("info", f"> {task}\n")
         self._refresh_screenshot()
 
-        self._agent_thread = threading.Thread(target=self._run_agent, args=(task, self._run_id), daemon=True)
+        self._agent_thread = threading.Thread(
+            target=self._run_agent, args=(task, self._run_id), daemon=True)
         self._agent_thread.start()
 
     def _stop(self) -> None:
         self._stop_event.set()
         self._push_log("info", "\n[stopped]\n")
-        # Don't call _on_done() — the agent thread will call it when it
-        # detects the stop event and exits.
+        self._task_entry.configure(state=tk.NORMAL)
+        self._run_btn.configure(state=tk.NORMAL)
 
     def _on_done(self, run_id: int) -> None:
         if run_id != self._run_id:
-            return  # stale callback from an interrupted task
+            return
+        self._task_entry.configure(state=tk.NORMAL)
         self._run_btn.configure(state=tk.NORMAL)
         self._stop_btn.configure(state=tk.DISABLED)
 
@@ -186,11 +346,13 @@ class App:
         try:
             load_dotenv()
             client = create_client()
-            model = must_get_env("OPENAI_MODEL")
-            dispatcher = create_dispatcher()
+            model = os.environ.get("OPENAI_MODEL", "")
+            enabled = {k for k, v in self._tool_vars.items() if v.get()}
+            dispatcher = create_dispatcher(enabled, instances=self._tool_instances)
             tools = list(dispatcher.tool_schemas().values())
+            system_prompt = self._sys_text.get("1.0", tk.END).strip()
             cb = _GuiCallbacks(self)
-            run_task(client, model, tools, dispatcher, task, cb)
+            run_task(client, model, tools, dispatcher, task, cb, system_prompt=system_prompt)
         except Exception as e:
             self._push_log("error", f"\nFatal: {e}\n")
         finally:
@@ -198,10 +360,6 @@ class App:
 
 
 class _GuiCallbacks:
-    """Bridge between the agent thread and the GUI. All methods are called
-    from the agent thread; they marshal updates through the App's pending
-    queues so tkinter widgets are only touched on the main thread."""
-
     def __init__(self, app: App) -> None:
         self._app = app
 

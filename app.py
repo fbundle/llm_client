@@ -96,14 +96,23 @@ def create_client() -> OpenAI:
     )
 
 
-def create_dispatcher() -> ToolList:
-    return ToolList(
-        MouseTool(),
-        KeyboardTool(),
-        PikaFishTool(),
-        JSRuntimeTool(),
-        ScreenTool(),
-    )
+def create_dispatcher(
+    enabled: set[str] | None = None,
+    instances: dict[str, MouseTool | KeyboardTool | PikaFishTool | JSRuntimeTool | ScreenTool] | None = None,
+) -> ToolList:
+    if instances is not None:
+        names = enabled if enabled is not None else set(instances)
+        return ToolList(*(t for name, t in instances.items() if name in names))
+    # CLI path: create fresh instances each time
+    all_tools = {
+        "mouse": MouseTool(),
+        "keyboard": KeyboardTool(),
+        "pikafish": PikaFishTool(),
+        "js_runtime": JSRuntimeTool(),
+        "screen": ScreenTool(),
+    }
+    names = enabled if enabled is not None else set(all_tools)
+    return ToolList(*(t for name, t in all_tools.items() if name in names))
 
 
 def stream_response(
@@ -209,10 +218,11 @@ def run_task(
     dispatcher: ToolList,
     task: str,
     cb: Callbacks,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> None:
     system: ChatCompletionSystemMessageParam = {
         "role": "system",
-        "content": SYSTEM_PROMPT,
+        "content": system_prompt,
     }
     messages: list[ChatCompletionMessageParam] = [
         system,
