@@ -115,8 +115,8 @@ class PikaFish:
 
 
 class PikaFishTool(Tool):
-    def __init__(self, *args, **kwrags):
-        self.pikafish = PikaFish(*args, **kwrags)
+    def __init__(self, *args, **kwargs):
+        self.pikafish = PikaFish(*args, **kwargs)
         
 
     def pikafish_go(self, fen: str, depth: int) -> str:
