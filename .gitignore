@@ -182,10 +182,36 @@ activemq-data/
 
 # Environments
 .env
+.env.*
 .envrc
 .venv
 env/
 venv/
+
+# Keys and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.p8
+*.keystore
+*.jks
+*.asc
+*.gpg
+*.sec
+secrets.yml
+secrets.yaml
+secrets.json
+*.credentials.json
+*credential*.json
+service-account*.json
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.netrc
+_netrc
+*.pubxml.user
 ENV/
 env.bak/
 venv.bak/
