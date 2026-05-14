@@ -66,7 +66,7 @@ def main() -> None:
         input("Press Enter to take a turn...")
 
         print("[*] taking screenshot...")
-        screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
+        screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg")
         print("[*] sending to model...")
 
         messages: list[dict[str, object]] = [system, {
