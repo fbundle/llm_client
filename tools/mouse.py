@@ -4,14 +4,16 @@ from typing import Literal
 
 import pyautogui
 
-def mouse_click(
-    x: float,
-    y: float,
-    button: Literal["left", "right", "middle"] = "left",
-) -> None:
-    """Click at (*x*, *y*) where both are in [0, 1] relative to the screen."""
-    sw, sh = pyautogui.size()
-    pyautogui.click(x * sw, y * sh, button=button)
+class MouseClick:
+    def mouse_click(
+        self,
+        x: float,
+        y: float,
+        button: Literal["left", "right", "middle"] = "left",
+    ) -> None:
+        """Click at (*x*, *y*) where both are in [0, 1] relative to the screen."""
+        sw, sh = pyautogui.size()
+        pyautogui.click(x * sw, y * sh, button=button)
 
 openai_tools = {
     "type": "function",
