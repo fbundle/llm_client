@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import selectors
 import subprocess
+from pathlib import Path
 
-
-_BINARY = "vendor/Pikafish/src/pikafish"
+_BINARY = str(Path(__file__).resolve().parent.parent / "vendor" / "Pikafish" / "src" / "pikafish")
 
 
 class PikaFish:
@@ -14,11 +14,9 @@ class PikaFish:
     def __init__(self) -> None:
         self._p: subprocess.Popen[bytes] | None = None
 
-    def start(self) -> None:
-        """Launch Pikafish and perform the UCI handshake."""
+    def _ensure_started(self) -> None:
         if self._p is not None:
-            raise RuntimeError("already started")
-
+            return
         self._p = subprocess.Popen(
             [_BINARY],
             stdin=subprocess.PIPE,
@@ -27,24 +25,15 @@ class PikaFish:
             bufsize=0,
         )
         self._send("uci")
-        self._read_until(("uciok",))      # banner + engine info
+        self._read_until(("uciok",))
         self._send("setoption name UCI_ShowWDL value true")
         self._send("isready")
         self._read_until(("readyok",))
 
-    def finish(self) -> None:
-        """Gracefully shut down the engine."""
-        if self._p is None:
-            raise RuntimeError("not started")
-        self._send("quit")
-        self._p.stdin.close()
-        self._p.wait(timeout=2)
-        self._p = None
-
     def go(self, fen: str, depth: int) -> tuple[str, str]:
         """Analyze *fen* to *depth* and return ``(move, ponder)``."""
-        if self._p is None:
-            raise RuntimeError("not started; call start() first")
+        self._ensure_started()
+        assert self._p is not None
         self._send(f"position fen {fen}")
         self._send(f"go depth {depth}")
         out = self._read_until(("bestmove",))
@@ -54,13 +43,46 @@ class PikaFish:
         ponder = parts[3] if len(parts) > 3 and parts[2] == "ponder" else ""
         return move, ponder
 
+    def finish(self) -> None:
+        """Gracefully shut down the engine."""
+        if self._p is None:
+            return
+        self._send("quit")
+        self._p.stdin.close()
+        self._p.wait(timeout=2)
+        self._p = None
+
+    def openai_tools(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "pikafish_go",
+                    "description": "Analyze a xiangqi (Chinese chess) position given its FEN and return the best move.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "fen": {
+                                "type": "string",
+                                "description": "FEN string of the xiangqi position.",
+                            },
+                            "depth": {
+                                "type": "integer",
+                                "description": "Search depth (higher = stronger but slower).",
+                            },
+                        },
+                        "required": ["fen", "depth"],
+                    },
+                },
+            },
+        ]
+
     def _send(self, line: str) -> None:
         assert self._p is not None and self._p.stdin is not None
         self._p.stdin.write((line.rstrip("\n") + "\n").encode())
         self._p.stdin.flush()
 
     def _read_until(self, end_markers: tuple[str, ...]) -> str:
-        """Read stdout + stderr until a line starts with one of *end_markers*."""
         assert self._p is not None and self._p.stdout is not None and self._p.stderr is not None
 
         out_buf = bytearray()

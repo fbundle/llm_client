@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from pikafish import PikaFish
+from tools.pikafish import PikaFish
 
 _START_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
 
 
 def main() -> None:
     pf = PikaFish()
-    pf.start()
-
-    result = pf.go(_START_FEN, 10)
-    print(result)
-
+    print(pf.go(_START_FEN, 10))
+    print(pf.openai_tools())
     pf.finish()
 
 

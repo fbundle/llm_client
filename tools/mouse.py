@@ -1,5 +1,6 @@
 
 
+import json
 from typing import Literal
 
 import pyautogui
@@ -10,10 +11,21 @@ class MouseClick:
         x: float,
         y: float,
         button: Literal["left", "right", "middle"] = "left",
-    ) -> None:
+    ) -> str:
         """Click at (*x*, *y*) where both are in [0, 1] relative to the screen."""
         sw, sh = pyautogui.size()
         pyautogui.click(x * sw, y * sh, button=button)
+        return "mouse_click ok"
+    
+    def call(self, name: str, args: str) -> str:
+        if name == "mouse_click":
+            kwargs = json.loads(args)
+            try:
+                return self.mouse_click(**kwargs)
+            except Exception as e:
+                return str(e)
+        else:
+            return "tool name not found"
 
     def openai_tools(self) -> list:
         return [
