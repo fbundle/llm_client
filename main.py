@@ -7,8 +7,10 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from tools.js_runtime import JSRuntimeTool
 from tools.keyboard import KeyboardTool
 from tools.mouse import MouseTool
+from tools.pikafish import PikaFishTool
 from tools.screen import get_screenshot
 from tools.tool import Dispatcher
 
@@ -173,7 +175,9 @@ def main() -> None:
 
     mouse = MouseTool()
     keyboard = KeyboardTool()
-    dispatcher = Dispatcher(mouse, keyboard)
+    pikafish = PikaFishTool()
+    js = JSRuntimeTool()
+    dispatcher = Dispatcher(mouse, keyboard, pikafish, js)
     tools = dispatcher.openai_tools()
 
     system: dict[str, Any] = {
