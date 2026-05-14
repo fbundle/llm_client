@@ -68,22 +68,17 @@ class MouseTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "mouse_move",
-                    "description": (
-                        "Move cursor to a position. x and y MUST be between 0.0 and 1.0 — "
-                        "they are FRACTIONS of the screen, NOT pixel values. "
-                        "0.0=left/top edge, 0.5=center, 1.0=right/bottom edge. "
-                        "Example: to click a button at the center of the screen, use x=0.5 y=0.5."
-                    ),
+                    "description": "Move cursor to (x, y) as fractions of screen size (0.0–1.0).",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "x": {
                                 "type": "number",
-                                "description": "Fraction of screen width (0.0 to 1.0). NOT pixels.",
+                                "description": "Fraction of screen width (0.0=left, 1.0=right).",
                             },
                             "y": {
                                 "type": "number",
-                                "description": "Fraction of screen height (0.0 to 1.0). NOT pixels.",
+                                "description": "Fraction of screen height (0.0=top, 1.0=bottom).",
                             },
                         },
                         "required": ["x", "y"],
@@ -94,22 +89,22 @@ class MouseTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "mouse_click",
-                    "description": "Click at a position. If x and y are given, moves there first then clicks. If omitted, clicks at current cursor position.",
+                    "description": "Click mouse. If (x, y) given, moves there first. If omitted, clicks at current position.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "button": {
                                 "type": "string",
                                 "enum": ["left", "right", "middle"],
-                                "description": "Mouse button. Default is left.",
+                                "description": "Mouse button (default: left).",
                             },
                             "x": {
                                 "type": "number",
-                                "description": "Fraction of screen width (0.0 to 1.0). NOT pixels.",
+                                "description": "Fraction of screen width (0.0–1.0).",
                             },
                             "y": {
                                 "type": "number",
-                                "description": "Fraction of screen height (0.0 to 1.0). NOT pixels.",
+                                "description": "Fraction of screen height (0.0–1.0).",
                             },
                         },
                     },
@@ -119,22 +114,22 @@ class MouseTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "mouse_drag",
-                    "description": "Drag from current cursor position to a target position. Use mouse_move first to set the start point, then drag to the end point.",
+                    "description": "Drag from current position to (x, y). Use mouse_move first to set the starting point.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "x": {
                                 "type": "number",
-                                "description": "Fraction of screen width (0.0 to 1.0) for the drag destination. NOT pixels.",
+                                "description": "Fraction of screen width (0.0–1.0) — drag destination.",
                             },
                             "y": {
                                 "type": "number",
-                                "description": "Fraction of screen height (0.0 to 1.0) for the drag destination. NOT pixels.",
+                                "description": "Fraction of screen height (0.0–1.0) — drag destination.",
                             },
                             "button": {
                                 "type": "string",
                                 "enum": ["left", "right", "middle"],
-                                "description": "Mouse button to hold during drag. Default is left.",
+                                "description": "Button held during drag (default: left).",
                             },
                         },
                         "required": ["x", "y"],

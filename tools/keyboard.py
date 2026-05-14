@@ -42,13 +42,13 @@ class KeyboardTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "key_press",
-                    "description": "Press and release a single keyboard key.",
+                    "description": "Press and release a single key.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "key": {
                                 "type": "string",
-                                "description": "Key name, e.g. 'enter', 'space', 'tab', 'a', '1', 'f1'.",
+                                "description": "Key name, e.g. 'enter', 'tab', 'escape', 'backspace', 'f1'.",
                             },
                         },
                         "required": ["key"],
@@ -59,13 +59,13 @@ class KeyboardTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "key_type",
-                    "description": "Type a string character by character.",
+                    "description": "Type a string as if typed on the keyboard.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "text": {
                                 "type": "string",
-                                "description": "Text to type.",
+                                "description": "Text to type character-by-character.",
                             },
                         },
                         "required": ["text"],
@@ -76,14 +76,14 @@ class KeyboardTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "key_hotkey",
-                    "description": "Press a key combination like ctrl+c or alt+tab.",
+                    "description": "Press keys together. 'command' (⌘) and 'ctrl' (⌃) are DIFFERENT — use the correct one for the action.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "keys": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "Keys to press together, e.g. ['ctrl', 'c'].",
+                                "description": "Keys to press together. On macOS, use 'command' for ⌘ shortcuts (e.g. ['command', 't']), 'ctrl' for ⌃ (e.g. ['ctrl', 'c']).",
                             },
                         },
                         "required": ["keys"],

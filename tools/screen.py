@@ -83,7 +83,7 @@ class ScreenTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "take_screenshot",
-                    "description": "Request a fresh screenshot to see the current screen state.",
+                    "description": "Capture a fresh screenshot of the screen. Call this first to see what's on screen.",
                     "parameters": {"type": "object", "properties": {}},
                 },
             },

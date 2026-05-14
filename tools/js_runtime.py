@@ -30,17 +30,13 @@ class JSRuntimeTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "js_eval",
-                    "description": (
-                        "Execute JavaScript code and return the result. "
-                        "Use this for calculations, coordinate math, or any computation. "
-                        "The last expression's value is returned."
-                    ),
+                    "description": "Execute JavaScript code. The value of the last expression is returned. Use for calculations, coordinate math, or any computation.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "code": {
                                 "type": "string",
-                                "description": "JavaScript code to execute. The return value is the last expression.",
+                                "description": "JavaScript code to evaluate.",
                             },
                         },
                         "required": ["code"],
