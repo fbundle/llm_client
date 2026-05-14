@@ -27,6 +27,18 @@ class MouseTool(Tool):
         pyautogui.click(button=button)
         return ToolOutput(state_change=True, output="mouse_click ok", error="")
 
+    def mouse_drag(
+        self,
+        x: float,
+        y: float,
+        button: Literal["left", "right", "middle"] = "left",
+    ) -> ToolOutput:
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            return ToolOutput(state_change=False, output="", error=f"x and y must be in [0, 1], got x={x}, y={y}")
+        sw, sh = pyautogui.size()
+        pyautogui.drag(x * sw, y * sh, button=button)
+        return ToolOutput(state_change=True, output="mouse_drag ok", error="")
+
     def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name == "mouse_move":
             try:
@@ -39,6 +51,12 @@ class MouseTool(Tool):
                 x = float(kwargs["x"]) if "x" in kwargs else None
                 y = float(kwargs["y"]) if "y" in kwargs else None
                 return self.mouse_click(button=button, x=x, y=y)
+            except Exception as e:
+                return ToolOutput(state_change=False, output="", error=str(e))
+        elif name == "mouse_drag":
+            try:
+                button = str(kwargs.get("button", "left"))
+                return self.mouse_drag(float(kwargs["x"]), float(kwargs["y"]), button=button)
             except Exception as e:
                 return ToolOutput(state_change=False, output="", error=str(e))
         else:
@@ -94,6 +112,32 @@ class MouseTool(Tool):
                                 "description": "Fraction of screen height (0.0 to 1.0). NOT pixels.",
                             },
                         },
+                    },
+                },
+            },
+            "mouse_drag": {
+                "type": "function",
+                "function": {
+                    "name": "mouse_drag",
+                    "description": "Drag from current cursor position to a target position. Use mouse_move first to set the start point, then drag to the end point.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "x": {
+                                "type": "number",
+                                "description": "Fraction of screen width (0.0 to 1.0) for the drag destination. NOT pixels.",
+                            },
+                            "y": {
+                                "type": "number",
+                                "description": "Fraction of screen height (0.0 to 1.0) for the drag destination. NOT pixels.",
+                            },
+                            "button": {
+                                "type": "string",
+                                "enum": ["left", "right", "middle"],
+                                "description": "Mouse button to hold during drag. Default is left.",
+                            },
+                        },
+                        "required": ["x", "y"],
                     },
                 },
             },
