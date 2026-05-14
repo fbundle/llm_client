@@ -50,9 +50,9 @@ class MouseTool(Tool):
         else:
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
-    def tool_schemas(self) -> list[ChatCompletionFunctionToolParam]:
-        return [
-            {
+    def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
+        return {
+            "mouse_move": {
                 "type": "function",
                 "function": {
                     "name": "mouse_move",
@@ -78,7 +78,7 @@ class MouseTool(Tool):
                     },
                 },
             },
-            {
+            "mouse_click": {
                 "type": "function",
                 "function": {
                     "name": "mouse_click",
@@ -103,4 +103,4 @@ class MouseTool(Tool):
                     },
                 },
             },
-        ]
+        }

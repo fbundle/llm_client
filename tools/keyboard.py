@@ -43,9 +43,9 @@ class KeyboardTool(Tool):
         else:
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
-    def tool_schemas(self) -> list[ChatCompletionFunctionToolParam]:
-        return [
-            {
+    def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
+        return {
+            "key_press": {
                 "type": "function",
                 "function": {
                     "name": "key_press",
@@ -62,7 +62,7 @@ class KeyboardTool(Tool):
                     },
                 },
             },
-            {
+            "key_type": {
                 "type": "function",
                 "function": {
                     "name": "key_type",
@@ -79,7 +79,7 @@ class KeyboardTool(Tool):
                     },
                 },
             },
-            {
+            "key_hotkey": {
                 "type": "function",
                 "function": {
                     "name": "key_hotkey",
@@ -97,4 +97,4 @@ class KeyboardTool(Tool):
                     },
                 },
             },
-        ]
+        }

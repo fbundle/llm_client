@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any
-
 from dotenv import load_dotenv
 from openai import OpenAI
+from openai.types.chat import (
+    ChatCompletionFunctionToolParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionUserMessageParam,
+)
 
 from tools.js_runtime import JSRuntimeTool
 from tools.keyboard import KeyboardTool
@@ -36,10 +41,9 @@ def _safe_json_args(args: str) -> str:
 def _stream_response(
     client: OpenAI,
     model: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]],
-) -> tuple[str, list[dict[str, Any]]]:
-    """Stream a chat completion, return (content, tool_calls)."""
+    messages: list[ChatCompletionMessageParam],
+    tools: list[ChatCompletionFunctionToolParam],
+) -> tuple[str, list[dict[str, object]]]:
     stream = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -56,7 +60,7 @@ def _stream_response(
             continue
 
         if getattr(delta, "reasoning_content", None):
-            print(f"\033[2m{delta.reasoning_content}\033[0m", end="", flush=True)
+            print(f"\033[2m{delta.reasoning_content}\033[0m", end="", flush=True) # type: ignore
 
         if delta.content:
             print(delta.content, end="", flush=True)
@@ -74,63 +78,55 @@ def _stream_response(
                     if tc_delta.function.name:
                         entry["name"] = tc_delta.function.name
                     if tc_delta.function.arguments:
-                        entry["args"] += tc_delta.function.arguments
+                        entry["args"] += tc_delta.function.arguments # type: ignore
 
     tool_calls = sorted(tool_call_buf.values(), key=lambda t: str(t.get("id", "")))
     return content_buf, tool_calls
 
 
 def _execute_tools(
-    tool_calls: list[dict[str, Any]],
+    tool_calls: list[dict[str, object]],
     dispatcher: ToolList,
-) -> list[dict[str, Any]]:
-    results: list[dict[str, Any]] = []
+) -> tuple[list[ChatCompletionMessageParam], bool]:
+    results: list[ChatCompletionMessageParam] = []
+    any_state_change = False
     for tc in tool_calls:
         name = str(tc["name"])
         args = str(tc["args"])
         print(f"[*] tool call: {name}({args})")
         out = dispatcher.dispatch(name, args)
         print(f"[*] tool output: {out.output}")
-        results.append({
-            "role": "tool",
-            "tool_call_id": str(tc["id"]),
-            "content": out.output,
-        })
+        if out.state_change:
+            any_state_change = True
+        results.append(ChatCompletionToolMessageParam(
+            role="tool",
+            tool_call_id=str(tc["id"]),
+            content=out.output,
+        ))
         if out.error:
             print(f"[!] tool error: {out.error}")
-            results.append({
-                "role": "user",
-                "content": [{"type": "text", "text": f"Error: {out.error}"}],
-            })
-    return results
+            results.append(ChatCompletionUserMessageParam(
+                role="user",
+                content=[{"type": "text", "text": f"Error: {out.error}"}],
+            ))
+    return results, any_state_change
 
 
-def _strip_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return a copy of messages with all image content removed from user messages."""
-    out: list[dict[str, Any]] = []
-    for msg in messages:
-        if msg["role"] == "user" and isinstance(msg.get("content"), list):
-            text_only = [p for p in msg["content"] if p.get("type") != "image_url"] or [{"type": "text", "text": ""}]
-            out.append({"role": "user", "content": text_only})
-        else:
-            out.append(msg)
-    return out
 
 
 def run_task(
     client: OpenAI,
     model: str,
-    tools: list[dict[str, Any]],
-    system: dict[str, Any],
+    tools: list[ChatCompletionFunctionToolParam],
+    system: ChatCompletionSystemMessageParam,
     dispatcher: ToolList,
     task: str,
 ) -> None:
-    """Run a single task, keeping text history but only the latest screenshot."""
     print("[*] taking screenshot...")
     screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
     print("[*] sending to model...")
 
-    messages: list[dict[str, Any]] = [system, {
+    messages: list[ChatCompletionMessageParam] = [system, {
         "role": "user",
         "content": [
             {"type": "text", "text": task},
@@ -150,6 +146,7 @@ def run_task(
             break
 
         print()
+        tool_results, state_changed = _execute_tools(tool_calls, dispatcher)
         messages += [
             {
                 "role": "assistant",
@@ -163,21 +160,20 @@ def run_task(
                     for tc in tool_calls
                 ],
             },
-            *_execute_tools(tool_calls, dispatcher),
+            *tool_results,
         ]
 
-        messages = _strip_images(messages)
-
-        time.sleep(0.5)
-        print("[*] taking screenshot...")
-        screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
-        messages += [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Latest screenshot. Continue the task."},
-                {"type": "image_url", "image_url": {"url": screenshot, "detail": "low"}},
-            ],
-        }]
+        if state_changed:
+            time.sleep(0.5)
+            print("[*] taking screenshot...")
+            screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
+            messages += [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Latest screenshot. Continue the task."},
+                    {"type": "image_url", "image_url": {"url": screenshot, "detail": "low"}},
+                ],
+            }]
 
 
 def main() -> None:
@@ -194,9 +190,9 @@ def main() -> None:
     pikafish = PikaFishTool()
     js = JSRuntimeTool()
     dispatcher = ToolList(mouse, keyboard, pikafish, js)
-    tools = dispatcher.tool_schemas()
+    tools: list[ChatCompletionFunctionToolParam] = list(dispatcher.tool_schemas().values())
 
-    system: dict[str, Any] = {
+    system: ChatCompletionSystemMessageParam = {
         "role": "system",
         "content": (
             "You control a computer. Each message includes a screenshot.\n"

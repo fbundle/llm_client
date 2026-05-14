@@ -137,9 +137,9 @@ class PikaFishTool(Tool):
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
 
-    def tool_schemas(self) -> list[ChatCompletionFunctionToolParam]:
-        return [
-            {
+    def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
+        return {
+            "submit_board": {
                 "type": "function",
                 "function": {
                     "name": "submit_board",
@@ -167,4 +167,4 @@ class PikaFishTool(Tool):
                     },
                 },
             },
-        ]
+        }
