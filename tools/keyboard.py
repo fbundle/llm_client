@@ -2,49 +2,46 @@ import json
 
 import pyautogui
 
-from tools.tool import Tool
+from tools.tool import Tool, ToolOutput
 
 
 class KeyboardTool(Tool):
-    def key_press(self, key: str) -> tuple[str, bool]:
-        """Press and release a single key."""
+    def key_press(self, key: str) -> ToolOutput:
         pyautogui.press(key)
-        return f"key_press {key} ok", True
+        return ToolOutput(state_change=True, output=f"key_press {key} ok", error="")
 
-    def key_type(self, text: str) -> tuple[str, bool]:
-        """Type a string character by character."""
+    def key_type(self, text: str) -> ToolOutput:
         pyautogui.typewrite(text)
-        return f"key_type {len(text)} chars ok", True
+        return ToolOutput(state_change=True, output=f"key_type {len(text)} chars ok", error="")
 
-    def key_hotkey(self, keys: list[str]) -> tuple[str, bool]:
-        """Press a key combination (e.g. ctrl+c)."""
+    def key_hotkey(self, keys: list[str]) -> ToolOutput:
         pyautogui.hotkey(*keys)
-        return f"key_hotkey {'+'.join(keys)} ok", True
+        return ToolOutput(state_change=True, output=f"key_hotkey {'+'.join(keys)} ok", error="")
 
-    def call(self, name: str, args: str) -> tuple[str, bool]:
+    def call(self, name: str, args: str) -> ToolOutput:
         try:
             kwargs = json.loads(args)
         except Exception as e:
-            return str(e), False
+            return ToolOutput(state_change=False, output="", error=str(e))
 
         if name == "key_press":
             try:
                 return self.key_press(str(kwargs["key"]))
             except Exception as e:
-                return str(e), False
+                return ToolOutput(state_change=False, output="", error=str(e))
         elif name == "key_type":
             try:
                 return self.key_type(str(kwargs["text"]))
             except Exception as e:
-                return str(e), False
+                return ToolOutput(state_change=False, output="", error=str(e))
         elif name == "key_hotkey":
             try:
                 keys = [str(k) for k in kwargs["keys"]]
                 return self.key_hotkey(keys)
             except Exception as e:
-                return str(e), False
+                return ToolOutput(state_change=False, output="", error=str(e))
         else:
-            return "tool name not found", False
+            return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
     def openai_tools(self) -> list:
         return [

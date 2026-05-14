@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol
+
+@dataclass
+class ToolOutput:
+    state_change: bool
+    output: str
+    error: str
 
 
 class Tool(Protocol):
-    def call(self, name: str, args: str) -> tuple[str, bool]: ...
+    def call(self, name: str, args: str) -> ToolOutput: ...
     def openai_tools(self) -> list[dict[str, object]]: ...
 
 
-class Dispatcher:
+class Dispatcher(Tool):
     def __init__(self, *tools: Tool) -> None:
         self._tools = list(tools)
         self._lookup: dict[str, Tool] = {}
@@ -17,10 +24,10 @@ class Dispatcher:
                 name = func["function"]["name"]
                 self._lookup[name] = t
 
-    def call(self, name: str, args: str) -> tuple[str, bool]:
+    def call(self, name: str, args: str) -> ToolOutput:
         tool = self._lookup.get(name)
         if tool is None:
-            return f"unknown tool: {name}", False
+            return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
         return tool.call(name, args)
 
     def openai_tools(self) -> list[dict[str, Any]]:

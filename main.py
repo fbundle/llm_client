@@ -70,19 +70,24 @@ def _execute_tools(
     tool_calls: list[dict[str, Any]],
     dispatcher: Dispatcher,
 ) -> list[dict[str, Any]]:
-    """Execute tool calls, return tool result messages."""
     results: list[dict[str, Any]] = []
     for tc in tool_calls:
         name = str(tc["name"])
         args = str(tc["args"])
         print(f"[*] tool call: {name}({args})")
-        result, _ = dispatcher.call(name, args)
-        print(f"[*] tool result: {result}")
+        out = dispatcher.call(name, args)
+        print(f"[*] tool output: {out.output}")
         results.append({
             "role": "tool",
             "tool_call_id": str(tc["id"]),
-            "content": result,
+            "content": out.output,
         })
+        if out.error:
+            print(f"[!] tool error: {out.error}")
+            results.append({
+                "role": "user",
+                "content": [{"type": "text", "text": f"Error: {out.error}"}],
+            })
     return results
 
 

@@ -4,41 +4,39 @@ from typing import Literal
 
 import pyautogui
 
-from tools.tool import Tool
+from tools.tool import Tool, ToolOutput
 
 class MouseTool(Tool):
-    def mouse_move(self, x: float, y: float) -> tuple[str, bool]:
-        """Move cursor to (*x*, *y*) where both are in [0, 1] relative to the screen."""
+    def mouse_move(self, x: float, y: float) -> ToolOutput:
         if not (0 <= x <= 1 and 0 <= y <= 1):
-            return f"error: x and y must be in [0, 1], got x={x}, y={y}", False
+            return ToolOutput(state_change=False, output="", error=f"x and y must be in [0, 1], got x={x}, y={y}")
         sw, sh = pyautogui.size()
         pyautogui.moveTo(x * sw, y * sh)
-        return "mouse_move ok", True
+        return ToolOutput(state_change=True, output="mouse_move ok", error="")
 
-    def mouse_click(self, button: Literal["left", "right", "middle"] = "left") -> tuple[str, bool]:
-        """Click at the current cursor position."""
+    def mouse_click(self, button: Literal["left", "right", "middle"] = "left") -> ToolOutput:
         pyautogui.click(button=button)
-        return "mouse_click ok", True
+        return ToolOutput(state_change=True, output="mouse_click ok", error="")
 
-    def call(self, name: str, args: str) -> tuple[str, bool]:
+    def call(self, name: str, args: str) -> ToolOutput:
         try:
             kwargs = json.loads(args)
         except Exception as e:
-            return str(e), False
+            return ToolOutput(state_change=False, output="", error=str(e))
 
         if name == "mouse_move":
             try:
                 return self.mouse_move(float(kwargs["x"]), float(kwargs["y"]))
             except Exception as e:
-                return str(e), False
+                return ToolOutput(state_change=False, output="", error=str(e))
         elif name == "mouse_click":
             try:
                 button = str(kwargs.get("button", "left"))
                 return self.mouse_click(button)
             except Exception as e:
-                return str(e), False
+                return ToolOutput(state_change=False, output="", error=str(e))
         else:
-            return "tool name not found", False
+            return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
     def openai_tools(self) -> list:
         return [
