@@ -3,14 +3,23 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import dataclass
 from dotenv import load_dotenv
 from openai import OpenAI
 from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartTextParam,
     ChatCompletionFunctionToolParam,
+    ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
     ChatCompletionToolMessageParam,
     ChatCompletionUserMessageParam,
+)
+from openai.types.chat.chat_completion_content_part_image_param import ImageURL
+from openai.types.chat.chat_completion_message_function_tool_call_param import (
+    Function as ToolCallFunction,
 )
 
 from tools.js_runtime import JSRuntimeTool
@@ -18,7 +27,7 @@ from tools.keyboard import KeyboardTool
 from tools.mouse import MouseTool
 from tools.pikafish import PikaFishTool
 from tools.screen import get_screenshot
-from tools.tool import ToolList
+from tools.tool import ToolList, ToolOutput
 
 
 def must_get_env(key: str) -> str:
@@ -27,15 +36,22 @@ def must_get_env(key: str) -> str:
     return val
 
 
-def _safe_json_args(args: str) -> str:
+@dataclass
+class _ToolCall:
+    id: str = ""
+    name: str = ""
+    kwargs_str: str = ""
+
+
+def _safe_json_kwargs(kwargs_str: str) -> str:
     """Take only the first valid JSON object from a possibly concatenated string."""
     try:
-        json.loads(args)
-        return args
+        json.loads(kwargs_str)
+        return kwargs_str
     except json.JSONDecodeError as e:
         if e.msg == "Extra data":
-            return args[: e.pos]
-    return args
+            return kwargs_str[: e.pos]
+    return kwargs_str
 
 
 def _stream_response(
@@ -43,7 +59,7 @@ def _stream_response(
     model: str,
     messages: list[ChatCompletionMessageParam],
     tools: list[ChatCompletionFunctionToolParam],
-) -> tuple[str, list[dict[str, object]]]:
+) -> tuple[str, list[_ToolCall]]:
     stream = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -52,15 +68,15 @@ def _stream_response(
     )
 
     content_buf = ""
-    tool_call_buf: dict[int, dict[str, object]] = {}
+    tool_call_buf: dict[int, _ToolCall] = {}
 
     for chunk in stream:
         delta = chunk.choices[0].delta if chunk.choices else None
         if delta is None:
             continue
 
-        if getattr(delta, "reasoning_content", None):
-            print(f"\033[2m{delta.reasoning_content}\033[0m", end="", flush=True) # type: ignore
+        if reasoning := getattr(delta, "reasoning_content", None):
+            print(f"\033[2m{reasoning}\033[0m", end="", flush=True)
 
         if delta.content:
             print(delta.content, end="", flush=True)
@@ -70,44 +86,47 @@ def _stream_response(
             for tc_delta in delta.tool_calls:
                 idx = tc_delta.index
                 if idx not in tool_call_buf:
-                    tool_call_buf[idx] = {"id": tc_delta.id or "", "name": "", "args": ""}
-                entry = tool_call_buf[idx]
+                    tool_call_buf[idx] = _ToolCall()
+                tc = tool_call_buf[idx]
                 if tc_delta.id:
-                    entry["id"] = tc_delta.id
+                    tc.id = tc_delta.id
                 if tc_delta.function:
                     if tc_delta.function.name:
-                        entry["name"] = tc_delta.function.name
+                        tc.name = tc_delta.function.name
                     if tc_delta.function.arguments:
-                        entry["args"] += tc_delta.function.arguments # type: ignore
+                        tc.kwargs_str += tc_delta.function.arguments
 
-    tool_calls = sorted(tool_call_buf.values(), key=lambda t: str(t.get("id", "")))
+    tool_calls = sorted(tool_call_buf.values(), key=lambda t: t.id)
     return content_buf, tool_calls
 
 
 def _execute_tools(
-    tool_calls: list[dict[str, object]],
+    tool_calls: list[_ToolCall],
     dispatcher: ToolList,
 ) -> tuple[list[ChatCompletionMessageParam], bool]:
     results: list[ChatCompletionMessageParam] = []
     any_state_change = False
     for tc in tool_calls:
-        name = str(tc["name"])
-        args = str(tc["args"])
-        print(f"[*] tool call: {name}({args})")
-        out = dispatcher.dispatch(name, args)
+        print(f"[*] tool call: {tc.name}({tc.kwargs_str})")
+        try:
+            kwargs = json.loads(tc.kwargs_str)
+        except json.JSONDecodeError as e:
+            out = ToolOutput(state_change=False, output="", error=f"invalid JSON: {e}")
+        else:
+            out = dispatcher.dispatch(tc.name, kwargs)
         print(f"[*] tool output: {out.output}")
         if out.state_change:
             any_state_change = True
         results.append(ChatCompletionToolMessageParam(
             role="tool",
-            tool_call_id=str(tc["id"]),
+            tool_call_id=tc.id,
             content=out.output,
         ))
         if out.error:
             print(f"[!] tool error: {out.error}")
             results.append(ChatCompletionUserMessageParam(
                 role="user",
-                content=[{"type": "text", "text": f"Error: {out.error}"}],
+                content=[ChatCompletionContentPartTextParam(type="text", text=f"Error: {out.error}")],
             ))
     return results, any_state_change
 
@@ -126,13 +145,13 @@ def run_task(
     screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
     print("[*] sending to model...")
 
-    messages: list[ChatCompletionMessageParam] = [system, {
-        "role": "user",
-        "content": [
-            {"type": "text", "text": task},
-            {"type": "image_url", "image_url": {"url": screenshot, "detail": "low"}},
+    messages: list[ChatCompletionMessageParam] = [system, ChatCompletionUserMessageParam(
+        role="user",
+        content=[
+            ChatCompletionContentPartTextParam(type="text", text=task),
+            ChatCompletionContentPartImageParam(type="image_url", image_url=ImageURL(url=screenshot, detail="low")),
         ],
-    }]
+    )]
 
     while True:
         try:
@@ -148,18 +167,18 @@ def run_task(
         print()
         tool_results, state_changed = _execute_tools(tool_calls, dispatcher)
         messages += [
-            {
-                "role": "assistant",
-                "content": content or None,
-                "tool_calls": [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": _safe_json_args(str(tc["args"]))},
-                    }
+            ChatCompletionAssistantMessageParam(
+                role="assistant",
+                content=content or None,
+                tool_calls=[
+                    ChatCompletionMessageFunctionToolCallParam(
+                        id=tc.id,
+                        type="function",
+                        function=ToolCallFunction(name=tc.name, arguments=_safe_json_kwargs(tc.kwargs_str)),
+                    )
                     for tc in tool_calls
                 ],
-            },
+            ),
             *tool_results,
         ]
 
@@ -167,13 +186,13 @@ def run_task(
             time.sleep(0.5)
             print("[*] taking screenshot...")
             screenshot = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
-            messages += [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Latest screenshot. Continue the task."},
-                    {"type": "image_url", "image_url": {"url": screenshot, "detail": "low"}},
+            messages += [ChatCompletionUserMessageParam(
+                role="user",
+                content=[
+                    ChatCompletionContentPartTextParam(type="text", text="Latest screenshot. Continue the task."),
+                    ChatCompletionContentPartImageParam(type="image_url", image_url=ImageURL(url=screenshot, detail="low")),
                 ],
-            }]
+            )]
 
 
 def main() -> None:

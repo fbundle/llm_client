@@ -14,7 +14,7 @@ class ToolOutput:
 
 
 class Tool(Protocol):
-    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput: ...
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput: ...
     def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]: ...
 
 
@@ -26,11 +26,11 @@ class ToolList(Tool):
             for name in t.tool_schemas():
                 self._lookup[name] = t
 
-    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput:
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         tool = self._lookup.get(name)
         if tool is None:
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
-        return tool.dispatch(name, kwargs_str)
+        return tool.dispatch(name, kwargs)
 
     def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
         result: dict[str, ChatCompletionFunctionToolParam] = {}
@@ -45,9 +45,9 @@ class NameMapping(Tool):
         self._to_original = {new: old for old, new in name_map.items()}
         self._to_new = name_map
 
-    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput:
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         original = self._to_original.get(name, name)
-        return self._tool.dispatch(original, kwargs_str)
+        return self._tool.dispatch(original, kwargs)
 
     def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
         schemas = copy.deepcopy(self._tool.tool_schemas())

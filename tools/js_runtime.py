@@ -16,11 +16,10 @@ class JSRuntimeTool(Tool):
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
 
-    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput:
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name != "js_eval":
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
         try:
-            kwargs = json.loads(kwargs_str)
             return self.js_eval(str(kwargs["code"]))
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))

@@ -1,5 +1,3 @@
-import json
-
 import pyautogui
 
 from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
@@ -18,12 +16,7 @@ class KeyboardTool(Tool):
         pyautogui.hotkey(*keys)
         return ToolOutput(state_change=True, output=f"key_hotkey {'+'.join(keys)} ok", error="")
 
-    def dispatch(self, name: str, args: str) -> ToolOutput:
-        try:
-            kwargs = json.loads(args)
-        except Exception as e:
-            return ToolOutput(state_change=False, output="", error=str(e))
-
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name == "key_press":
             try:
                 return self.key_press(str(kwargs["key"]))

@@ -1,5 +1,4 @@
 
-import json
 from typing import Literal
 
 import pyautogui
@@ -28,12 +27,7 @@ class MouseTool(Tool):
         pyautogui.click(button=button)
         return ToolOutput(state_change=True, output="mouse_click ok", error="")
 
-    def dispatch(self, name: str, kwargs_str: str) -> ToolOutput:
-        try:
-            kwargs = json.loads(kwargs_str)
-        except Exception as e:
-            return ToolOutput(state_change=False, output="", error=str(e))
-
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name == "mouse_move":
             try:
                 return self.mouse_move(float(kwargs["x"]), float(kwargs["y"]))

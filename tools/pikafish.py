@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import selectors
 import subprocess
@@ -128,11 +127,10 @@ class PikaFishTool(Tool):
             return ToolOutput(state_change=False, output=f"bestmove {move} ponder {ponder}", error="")
         return ToolOutput(state_change=False, output=move, error="")
 
-    def dispatch(self, name: str, args: str) -> ToolOutput:
+    def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
         if name != "submit_board":
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
         try:
-            kwargs = json.loads(args)
             return self.submit_board(str(kwargs["fen"]), int(kwargs["depth"]))
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))
