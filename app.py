@@ -82,6 +82,7 @@ SYSTEM_PROMPT = (
     "Keyboard:\n"
     "  key_type     — type a string character-by-character\n"
     "  key_press    — press a single key (enter, tab, escape, f1, etc.)\n"
+    "  key_hotkey is NOT available — use menu navigation with mouse and clicks instead.\n"
     "\n"
     "Screen:\n"
     "  take_screenshot  — capture a fresh screenshot\n"
