@@ -1,4 +1,4 @@
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 from llm_client.llm_client import Callbacks, DefaultCallbacks, LLMClient
 from llm_client.prompt import (
