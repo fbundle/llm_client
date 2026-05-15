@@ -313,13 +313,15 @@ def stream_response(
 
     tool_calls = sorted(tool_call_buf.values(), key=lambda t: t.id)
 
-    # Fallback: if no native tool calls, try parsing XML from content
-    if not tool_calls and content_buf:
+    # Fallback: parse XML tool calls from content (some models output both
+    # native tool calls AND XML tool calls interleaved with text)
+    if content_buf:
         xml_calls, content_buf = _parse_xml_tool_calls(content_buf)
         if xml_calls:
             for tc in xml_calls:
                 cb.on_tool_call(tc.name, tc.kwargs_str)
-            tool_calls = xml_calls
+            tool_calls += xml_calls
+            tool_calls = sorted(tool_calls, key=lambda t: t.id)
 
     return content_buf, tool_calls
 
