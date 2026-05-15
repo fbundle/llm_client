@@ -30,7 +30,7 @@ class MlxEngine:
             return_config=True,
         )
         logging.info("Model loaded")
-        self._cache: PrefixDict[Cache] = PrefixDict()
+        self.cache_dict: PrefixDict[Cache] = PrefixDict()
 
 
     def _make_cache(self) -> Cache:
@@ -54,7 +54,7 @@ class MlxEngine:
         min_p: float = 0.0,
     ) -> Iterator[int]:
         # manage cache
-        prev_state: Cache | None = self._cache.pop(prompt)
+        prev_state: Cache | None = self.cache_dict.pop(prompt)
         if prev_state is None:
             prev_state = self._make_cache()
             suffix = prompt
@@ -82,4 +82,4 @@ class MlxEngine:
         
         new_prompt = prompt + completion_token_list
         assert get_cache_prompt_length(new_state) == len(new_prompt)
-        self._cache.push(new_prompt, new_state)
+        self.cache_dict.push(new_prompt, new_state)
