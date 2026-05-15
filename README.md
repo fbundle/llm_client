@@ -2,6 +2,8 @@
 
 An LLM-powered desktop automation agent. The model sees your screen via screenshots, controls your mouse and keyboard, and executes tasks autonomously.
 
+![screenshot](https://raw.githubusercontent.com/fbundle/llm_client/refs/heads/master/assets/screenshot.png)
+
 ## Quick start
 
 ```bash
