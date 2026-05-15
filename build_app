@@ -8,7 +8,6 @@ NAME="LLM Agent"
 PYINSTALLER="uv run --with pyinstaller pyinstaller"
 MAIN="$ROOT/llm_client_window/window.py"
 ICON="$ROOT/assets/icon.icns"
-DATA="$ROOT/vendor:vendor"
 
 mkdir -p "$BIN"
 
@@ -20,7 +19,6 @@ case "$(uname -s)" in
             --windowed \
             --name "$NAME" \
             --icon $ICON \
-            --add-data $DATA \
             --distpath "$BIN" \
             $MAIN
         ;;
@@ -30,7 +28,6 @@ case "$(uname -s)" in
             --onefile \
             --windowed \
             --name "$NAME" \
-            --add-data $DATA \
             --distpath "$BIN" \
             $MAIN
         ;;

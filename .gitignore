@@ -280,5 +280,4 @@ bin/
 # others
 run_claude
 tmp
-assets
 vendor
