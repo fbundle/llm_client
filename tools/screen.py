@@ -7,7 +7,7 @@ from typing import Literal
 import pyautogui
 from PIL import Image as PIL_Image
 
-from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
+from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 _CURSOR_PATH = Path(__file__).resolve().parent / "cursor.png"
 _CURSOR_IMG = PIL_Image.open(_CURSOR_PATH)

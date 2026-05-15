@@ -274,6 +274,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# build output
+bin/
+
 # others
 run_claude
 tmp

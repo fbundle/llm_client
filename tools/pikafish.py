@@ -5,7 +5,7 @@ import selectors
 import subprocess
 from pathlib import Path
 
-from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
+from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 _BINARY = str(Path(__file__).resolve().parent.parent / "vendor" / "Pikafish" / "src" / "pikafish")
 

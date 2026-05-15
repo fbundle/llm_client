@@ -1,6 +1,6 @@
 import pyautogui
 
-from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
+from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
 class KeyboardTool(Tool):

@@ -2,7 +2,7 @@ import json
 
 from py_mini_racer import MiniRacer
 
-from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
+from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
 class JSRuntimeTool(Tool):

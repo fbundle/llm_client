@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import copy
+import importlib
+import inspect
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from openai.types.chat import ChatCompletionFunctionToolParam
@@ -59,3 +62,30 @@ class NameMapping(Tool):
                 schemas[new_name] = schemas.pop(old_name)
                 schemas[new_name]["function"]["name"] = new_name
         return schemas
+
+
+EMPTY_TOOL: Tool = ToolList()
+
+
+def discover_tools(tools_dir: Path) -> dict[str, Tool]:
+    """Discover and instantiate all Tool classes in *tools_dir*.
+
+    Each ``.py`` file (excluding ``_*`` and ``tool.py``) is loaded, and any
+    class with ``dispatch`` + ``tool_schemas`` methods (that isn't ToolList
+    or NameMapping) is instantiated and keyed by module stem.
+    """
+    result: dict[str, Tool] = {}
+    for f in sorted(tools_dir.glob("*.py")):
+        if f.name.startswith("_") or f.name == "tool.py":
+            continue
+        spec = importlib.util.spec_from_file_location(f"tools.{f.stem}", f)
+        if spec is None or spec.loader is None:
+            continue
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for _name, obj in inspect.getmembers(mod, inspect.isclass):
+            if hasattr(obj, "dispatch") and hasattr(obj, "tool_schemas"):
+                if obj not in (ToolList, NameMapping):
+                    result[f.stem] = obj()
+                    break
+    return result

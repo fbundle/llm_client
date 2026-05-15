@@ -8,7 +8,6 @@ from io import BytesIO
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
 from PIL import Image as PIL_Image
 
 from PySide6.QtCore import (
@@ -44,23 +43,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import (
+from llm_client import (
+    LLMClient, Callbacks,
+    PROMPT_GENERATE_META,
     PROMPT_TIER1_EXPLICIT,
     PROMPT_TIER2_GUIDED,
     PROMPT_TIER3_CONCISE,
     PROMPT_TIER4_MINIMAL,
     SYSTEM_PROMPT,
-    Callbacks,
-    create_client,
-    create_dispatcher,
-    generate_prompt,
-    run_task,
 )
-from tools.js_runtime import JSRuntimeTool
-from tools.keyboard import KeyboardTool
-from tools.mouse import MouseTool
-from tools.pikafish import PikaFishTool
-from tools.screen import ScreenTool, get_screenshot
+from tools.screen import get_screenshot
 
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 
@@ -69,6 +61,14 @@ _PROMPTS: dict[str, str] = {
     "tier2_guided": PROMPT_TIER2_GUIDED,
     "tier3_concise": PROMPT_TIER3_CONCISE,
     "tier4_minimal": PROMPT_TIER4_MINIMAL,
+}
+
+_TOOL_LABELS: dict[str, str] = {
+    "mouse": "Mouse",
+    "keyboard": "Keyboard",
+    "pikafish": "Pikafish",
+    "js_runtime": "JS Runtime",
+    "screen": "Screen",
 }
 
 
@@ -116,21 +116,21 @@ def _format_for_tag(tag: str, text: str) -> tuple[str, QTextCharFormat]:
 class AgentThread(QThread):
     log_signal = Signal(str, str)        # tag, text
     screenshot_signal = Signal(str)      # data_url
-    finished_signal = Signal(int, object)  # run_id, messages
+    finished_signal = Signal(int)        # run_id
 
     def __init__(
         self,
-        messages: list,
+        app: LLMClient,
         run_id: int,
+        user_message: str,
         enabled: set[str],
-        tool_instances: dict,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._messages = messages
+        self._app = app
         self._run_id = run_id
+        self._user_message = user_message
         self._enabled = enabled
-        self._tool_instances = tool_instances
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -138,17 +138,12 @@ class AgentThread(QThread):
 
     def run(self) -> None:
         try:
-            load_dotenv()
-            client = create_client()
-            model = os.environ.get("OPENAI_MODEL", "")
-            dispatcher = create_dispatcher(self._enabled, instances=self._tool_instances)
-            tools = list(dispatcher.tool_schemas().values())
             cb = _ThreadCallbacks(self)
-            result = run_task(client, model, tools, dispatcher, self._messages, cb)
-            self.finished_signal.emit(self._run_id, result)
+            self._app.run_task(self._user_message, self._enabled, cb)
+            self.finished_signal.emit(self._run_id)
         except Exception as e:
             self.log_signal.emit("error", f"\nFatal: {e}\n")
-            self.finished_signal.emit(self._run_id, self._messages)
+            self.finished_signal.emit(self._run_id)
 
 
 class _ThreadCallbacks:
@@ -189,18 +184,17 @@ class GenerateThread(QThread):
     result_signal = Signal(str)
     error_signal = Signal(str)
 
-    def __init__(self, current_prompt: str, parent: QWidget | None = None) -> None:
+    def __init__(self, app: LLMClient, meta_prompt: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._current = current_prompt
+        self._app = app
+        self._meta_prompt = meta_prompt
+        self._stop_event = threading.Event()
 
     def run(self) -> None:
         try:
-            load_dotenv()
-            client = create_client()
-            model = os.environ.get("OPENAI_MODEL", "")
-            cb = _ThreadCallbacks(self)  # type: ignore[arg-type]
+            cb = _ThreadCallbacks(self)
             self.log_signal.emit("info", "\n[auto-generate]\n")
-            result = generate_prompt(client, model, self._current, cb)
+            result = self._app.generate_prompt(self._meta_prompt, cb)
             self.result_signal.emit(result)
             self.log_signal.emit("info", "\n")
         except Exception as e:
@@ -218,21 +212,21 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
 
         self._env = _read_env()
-        self._tool_instances = {
-            "mouse": MouseTool(),
-            "keyboard": KeyboardTool(),
-            "pikafish": PikaFishTool(),
-            "js_runtime": JSRuntimeTool(),
-            "screen": ScreenTool(),
-        }
+        self._app = LLMClient(
+            base_url=self._env.get("OPENAI_BASE_URL", ""),
+            api_key=self._env.get("OPENAI_API_KEY", ""),
+            model=self._env.get("OPENAI_MODEL", ""),
+            tools_dir=Path(__file__).resolve().parent / "tools",
+            temperature=float(self._env.get("OPENAI_TEMPERATURE", "0.7")),
+            top_p=float(self._env.get("OPENAI_TOP_P", "1.0")),
+            max_tokens=int(self._env.get("OPENAI_MAX_TOKENS", "4096")),
+            system_prompt=SYSTEM_PROMPT,
+        )
         self._tool_checkboxes: dict[str, QCheckBox] = {}
 
         self._agent_thread: AgentThread | None = None
         self._gen_thread: GenerateThread | None = None
         self._run_id = 0
-        self._messages: list = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-        ]
 
         self._build_ui()
         self._apply_style()
@@ -405,14 +399,8 @@ class MainWindow(QMainWindow):
 
         # Tools
         layout.addWidget(QLabel("Tools"))
-        tool_names = [
-            ("mouse", "Mouse"),
-            ("keyboard", "Keyboard"),
-            ("pikafish", "Pikafish"),
-            ("js_runtime", "JS Runtime"),
-            ("screen", "Screen"),
-        ]
-        for key, label in tool_names:
+        for key in self._app.tool_instances:
+            label = _TOOL_LABELS.get(key, key.replace("_", " ").title())
             cb = QCheckBox(label)
             cb.setChecked(True)
             self._tool_checkboxes[key] = cb
@@ -542,7 +530,8 @@ class MainWindow(QMainWindow):
 
     def _clear_history(self) -> None:
         self._log.clear()
-        self._messages = [{"role": "system", "content": self._sys_edit.toPlainText().strip()}]
+        self._app.set_system_prompt(self._sys_edit.toPlainText().strip())
+        self._app.clear_history()
 
     # ------------------------------------------------------------------
     # Presets
@@ -553,14 +542,17 @@ class MainWindow(QMainWindow):
             return
         text = _PROMPTS.get(name)
         if text is not None:
+            self._app.set_system_prompt(text)
             self._sys_edit.setPlainText(text)
 
     def _auto_generate_prompt(self) -> None:
         current = self._sys_edit.toPlainText().strip()
         if not current:
             return
+        self._app.set_system_prompt(current)
+        meta_prompt = PROMPT_GENERATE_META.format(current=current)
         self._gen_btn.setEnabled(False)
-        self._gen_thread = GenerateThread(current)
+        self._gen_thread = GenerateThread(self._app, meta_prompt)
         self._gen_thread.log_signal.connect(self._append_log)
         self._gen_thread.result_signal.connect(self._on_generate_result)
         self._gen_thread.error_signal.connect(
@@ -591,20 +583,14 @@ class MainWindow(QMainWindow):
         self._append_log("info", f"> {task}\n")
         self._refresh_screenshot()
 
-        # Sync system prompt into messages
-        system_prompt = self._sys_edit.toPlainText().strip()
-        if self._messages and self._messages[0]["role"] == "system":
-            self._messages[0] = {"role": "system", "content": system_prompt}
-        else:
-            self._messages.insert(0, {"role": "system", "content": system_prompt})
-
-        # Append user task
-        self._messages.append({"role": "user", "content": [{"type": "text", "text": task}]})
+        # Sync state from UI into app
+        self._app.set_system_prompt(self._sys_edit.toPlainText().strip())
+        self._app.set_model(model=self._model_edit.text().strip() or self._app.model)
 
         enabled = {k for k, cb in self._tool_checkboxes.items() if cb.isChecked()}
 
         self._agent_thread = AgentThread(
-            self._messages, self._run_id, enabled, self._tool_instances)
+            self._app, self._run_id, task, enabled)
         self._agent_thread.log_signal.connect(self._append_log)
         self._agent_thread.screenshot_signal.connect(self._display_screenshot)
         self._agent_thread.finished_signal.connect(self._on_done)
@@ -616,10 +602,9 @@ class MainWindow(QMainWindow):
         self._append_log("info", "\n[stopped]\n")
         # UI re-enables in _on_done when thread finishes
 
-    def _on_done(self, run_id: int, messages: list) -> None:
+    def _on_done(self, run_id: int) -> None:
         if run_id != self._run_id:
             return
-        self._messages = messages
         self._task_entry.setEnabled(True)
         self._run_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)

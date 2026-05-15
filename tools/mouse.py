@@ -3,7 +3,7 @@ from typing import Literal
 
 import pyautogui
 
-from tools.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
+from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 class MouseTool(Tool):
     def mouse_move(self, x: float, y: float) -> ToolOutput:

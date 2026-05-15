@@ -1,24 +1,20 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from dotenv import load_dotenv
-from openai.types.chat import (
-    ChatCompletionContentPartTextParam,
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
 
-from app import (
-    SYSTEM_PROMPT,
-    Callbacks,
-    create_client,
-    create_dispatcher,
-    must_get_env,
-    run_task,
-)
+from llm_client import LLMClient, Callbacks, SYSTEM_PROMPT, ToolList, discover_tools
 
 
-class CliCallbacks:
+def _must_get_env(key: str) -> str:
+    val = os.environ.get(key)
+    assert val is not None, f"missing env var: {key}"
+    return val
+
+
+class CliCallbacks(Callbacks):
     def on_extra_content(self, data: str) -> None:
         print(f"\033[2m[extra_content: {data}]\033[0m")
 
@@ -47,25 +43,26 @@ class CliCallbacks:
 def main() -> None:
     load_dotenv()
 
-    client = create_client()
-    model = must_get_env("OPENAI_MODEL")
-    dispatcher = create_dispatcher()
-    tools = list(dispatcher.tool_schemas().values())
-    cb = CliCallbacks()
+    tools_dir = Path(__file__).resolve().parent / "tools"
+    all_tools = discover_tools(tools_dir)
+    tool = ToolList(*all_tools.values())
 
-    messages: list[ChatCompletionMessageParam] = [
-        ChatCompletionSystemMessageParam(role="system", content=SYSTEM_PROMPT),
-    ]
+    app = LLMClient(
+        base_url=_must_get_env("OPENAI_BASE_URL"),
+        api_key=_must_get_env("OPENAI_API_KEY"),
+        model=_must_get_env("OPENAI_MODEL"),
+        tool=tool,
+    )
+    app.append_system_message(SYSTEM_PROMPT)
+    cb = CliCallbacks()
 
     while True:
         task = input("Task: ").strip()
         if not task:
             continue
-        messages.append(ChatCompletionUserMessageParam(
-            role="user",
-            content=[ChatCompletionContentPartTextParam(type="text", text=task)],
-        ))
-        messages = run_task(client, model, tools, dispatcher, messages, cb)
+        print()
+        app.append_user_message_and_generate(task, cb)
+        print()
 
 
 if __name__ == "__main__":
