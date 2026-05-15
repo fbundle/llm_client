@@ -5,50 +5,62 @@ An LLM-powered desktop automation agent. The model sees your screen via screensh
 ## Quick start
 
 ```bash
-# Install dependencies
-uv sync
+# Install with GUI + all tools
+pip install llm-gui-client[gui]
 
-# Configure (edit .env — this file is gitignored)
-OPENAI_BASE_URL=https://api.openai.com/v1   # or any OpenAI-compatible endpoint
+# Or clone and run from source
+git clone https://github.com/fbundle/llm_client.git
+cd llm_client
+uv sync --extra gui
+```
+
+Create a `.env` file (gitignored):
+
+```
+OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
-
-# Launch GUI
-python main_gui.py
-
-# Or CLI (non-interactive)
-python main_cli.py "open Safari and go to wikipedia.org"
 ```
 
-## Project structure
+Launch:
 
+```bash
+python llm_client_window/window.py
+
+# Or via module:
+python -m llm_client_window
 ```
-app.py              Core agent loop, streaming, tool orchestration, prompt tiers
-main_gui.py         tkinter GUI with collapsible sidebars, log, preset prompts
-main_cli.py         Thin CLI entry point
-tools/
-  mouse.py          mouse_move, mouse_click, mouse_drag, mouse_scroll
-  keyboard.py       key_press, key_type
-  screen.py         take_screenshot (with cursor overlay)
-  js_runtime.py     js_eval (JavaScript evaluation via MiniRacer)
-  pikafish.py       submit_board (xiangqi/Chinese chess engine)
-  tool.py           Tool/ToolOutput/ToolList base classes
-check_secrets.py    Scans repo for accidentally committed secrets
+
+## Packages
+
+| Package | Contents | PyPI deps |
+|---|---|---|
+| `llm_client` | LLM client, streaming, prompt tiers, tool protocol | `openai` |
+| `llm_client_tools` | mouse, keyboard, screen, JS runtime, xiangqi engine | `pyautogui`, `pillow`, `mini-racer` |
+| `llm_client_window` | PySide6 GUI | `pyside6`, `python-dotenv` |
+
+Install what you need:
+
+```bash
+pip install llm-gui-client              # core only
+pip install llm-gui-client[tools]       # + tool implementations
+pip install llm-gui-client[gui]         # + GUI + tools (everything)
 ```
 
 ## Features
 
 - **Screenshot-driven**: model sees the screen at (0,0)-(1,1) fractional coordinates
-- **Streaming output**: reasoning and content tokens stream in real-time
+- **Streaming output**: reasoning and content tokens stream in real-time via callbacks
 - **GUI with sidebars**: collapsible environment config (left) and system prompt editor (right)
-- **Tiered prompts**: 4 built-in prompt levels from explicit (weak models) to minimal (strong models) — editable in-app
-- **Auto-generate prompts**: click to have the model improve the current system prompt
-- **Resizable layout**: draggable sashes between panels and log area
-- **Gemini-compatible**: handles `extra_content` / `thought_signature` for Gemini OpenAI-compatible endpoints
+- **Tiered prompts**: 4 built-in prompt levels from explicit (weak models) to minimal (strong models)
+- **Auto-generate prompts**: have the model improve the current system prompt
+- **Run/Stop toggle**: single button toggles between running and stopping
+- **Tool toggles**: enable/disable individual tools per run
+- **Gemini-compatible**: handles `extra_content` / `thought_signature`
 - **Stateful tools**: JS runtime and chess engine persist across turns
-- **Stop/interrupt**: threaded agent loop with clean shutdown
+- **Threaded agent**: clean stop/interrupt with threaded callbacks
 
-## Prompt tiers (in app.py)
+## Prompt tiers
 
 | Variable | Level | For |
 |---|---|---|
@@ -57,18 +69,25 @@ check_secrets.py    Scans repo for accidentally committed secrets
 | `PROMPT_TIER3_CONCISE` | Brief | Upper-mid models |
 | `PROMPT_TIER4_MINIMAL` | Minimal (default) | Strong models |
 
-## Sampling config (optional env vars)
-
-```
-OPENAI_TEMPERATURE=0.7
-OPENAI_TOP_P=1.0
-OPENAI_MAX_TOKENS=4096
-```
-
-## Security scanning
+## Build standalone .app
 
 ```bash
-python check_secrets.py          # scan working tree
-python check_secrets.py --full   # scan full git history
-python check_secrets.py --json   # JSON output
+./build_app
+```
+
+Outputs to `bin/`. Requires `uv`.
+
+## Example (CLI)
+
+```python
+from llm_client import LLMClient, SYSTEM_PROMPT, ToolList, discover_tools
+
+app = LLMClient(
+    base_url="https://api.openai.com/v1",
+    api_key="sk-...",
+    model="gpt-4o",
+    tool=ToolList(*discover_tools(Path("llm_client_tools")).values()),
+)
+app.append_system_message(SYSTEM_PROMPT)
+app.append_user_message_and_generate("Open Safari and go to wikipedia.org")
 ```
