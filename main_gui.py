@@ -269,18 +269,12 @@ class MainWindow(QMainWindow):
 
         self._task_entry = QLineEdit()
         self._task_entry.setPlaceholderText("Enter task...")
-        self._task_entry.returnPressed.connect(self._run)
+        self._task_entry.returnPressed.connect(self._run_stop)
         control_layout.addWidget(self._task_entry)
 
         self._run_btn = QPushButton("Run")
-        self._run_btn.clicked.connect(self._run)
+        self._run_btn.clicked.connect(self._run_stop)
         control_layout.addWidget(self._run_btn)
-
-        self._stop_btn = QPushButton("Stop")
-        self._stop_btn.setObjectName("stopBtn")
-        self._stop_btn.clicked.connect(self._stop)
-        self._stop_btn.setEnabled(False)
-        control_layout.addWidget(self._stop_btn)
 
         bottom_layout.addWidget(control)
         central_splitter.addWidget(bottom)
@@ -427,8 +421,6 @@ class MainWindow(QMainWindow):
         QPushButton:hover { background-color: #4a4a4a; }
         QPushButton:pressed { background-color: #2a2a2a; }
         QPushButton:disabled { color: #666666; }
-        QPushButton#stopBtn { color: #e05555; }
-        QPushButton#stopBtn:disabled { color: #885555; }
         QCheckBox { color: #cccccc; font-size: 12px; }
         QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #4a4a4a; border-radius: 3px; background-color: #2a2a2a; }
         QCheckBox::indicator:checked { background-color: #5ea2e8; border-color: #5ea2e8; }
@@ -571,18 +563,19 @@ class MainWindow(QMainWindow):
     # Run / Stop
     # ------------------------------------------------------------------
 
-    def _run(self) -> None:
+    def _run_stop(self) -> None:
+        if self._agent_thread is not None and self._agent_thread.isRunning():
+            self._agent_thread.stop()
+            self._append_log("info", "\n[stopped]\n")
+            return
+
         task = self._task_entry.text().strip()
         if not task:
             return
-        if self._agent_thread is not None and self._agent_thread.isRunning():
-            self._agent_thread.stop()
-            self._agent_thread.wait(2000)
         self._run_id += 1
         self._task_entry.clear()
         self._task_entry.setEnabled(False)
-        self._run_btn.setEnabled(False)
-        self._stop_btn.setEnabled(True)
+        self._run_btn.setText("Stop")
 
         self._append_log("info", f"> {task}\n")
         self._refresh_screenshot()
@@ -600,18 +593,11 @@ class MainWindow(QMainWindow):
         self._agent_thread.finished_signal.connect(self._on_done)
         self._agent_thread.start()
 
-    def _stop(self) -> None:
-        if self._agent_thread is not None:
-            self._agent_thread.stop()
-        self._append_log("info", "\n[stopped]\n")
-        # UI re-enables in _on_done when thread finishes
-
     def _on_done(self, run_id: int) -> None:
         if run_id != self._run_id:
             return
         self._task_entry.setEnabled(True)
-        self._run_btn.setEnabled(True)
-        self._stop_btn.setEnabled(False)
+        self._run_btn.setText("Run")
 
 
 # ------------------------------------------------------------------
