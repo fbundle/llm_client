@@ -14,8 +14,12 @@ def get_cache_prompt_length(cache: Cache) -> int:
     return cache[0].offset
 
 class MlxEngine:
-    def __init__(self, model_path: str, adapter_path: str | None = None,
-                 tq_bits: int = 3, tq_fused: bool = False):
+    def __init__(self,
+        model_path: str,
+        adapter_path: str | None = None,
+        tq_bits: int = 3,
+        tq_fused: bool = False,
+    ):
         if tq_fused:
             apply_patch()
 
