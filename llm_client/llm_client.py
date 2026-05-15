@@ -59,6 +59,32 @@ class Callbacks(Protocol):
     def is_stopped(self) -> bool: ...
 
 
+class DefaultCallbacks:
+    def on_extra_content(self, data: str) -> None:
+        print(f"\033[2m[extra_content: {data}]\033[0m")
+
+    def on_reasoning(self, token: str) -> None:
+        print(f"\033[2m{token}\033[0m", end="", flush=True)
+
+    def on_content(self, token: str) -> None:
+        print(token, end="", flush=True)
+
+    def on_tool_call(self, name: str, kwargs_str: str) -> None:
+        print(f"[*] tool call: {name}({kwargs_str})")
+
+    def on_tool_result(self, output: str) -> None:
+        print(f"[*] tool output: {output}")
+
+    def on_tool_error(self, error: str) -> None:
+        print(f"[!] tool error: {error}")
+
+    def on_screenshot(self, data_url: str) -> None:
+        pass
+
+    def is_stopped(self) -> bool:
+        return False
+
+
 # ------------------------------------------------------------------
 # XML fallback parser
 # ------------------------------------------------------------------
@@ -280,7 +306,9 @@ class LLMClient:
     def append_system_message(self, system_prompt: str) -> None:
         self.messages.append({"role": "system", "content": system_prompt})
 
-    def append_user_message_and_generate(self, user_message: str, cb: Callbacks) -> None:
+    def append_user_message_and_generate(self, user_message: str, cb: Callbacks | None = None) -> None:
+        if cb is None:
+            cb = DefaultCallbacks()
         msg_idx = len(self.messages)
         self.messages.append({
             "role": "user",
@@ -315,7 +343,9 @@ class LLMClient:
                 *tool_results,
             ]
 
-    def generate_prompt(self, meta_prompt: str, system_prompt: str, cb: Callbacks) -> str:
+    def generate_prompt(self, meta_prompt: str, system_prompt: str, cb: Callbacks | None = None) -> str:
+        if cb is None:
+            cb = DefaultCallbacks()
         stream = self._client.chat.completions.create(
             model=self.model,
             messages=[

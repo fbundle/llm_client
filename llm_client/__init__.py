@@ -1,4 +1,4 @@
-from llm_client.llm_client import Callbacks, LLMClient
+from llm_client.llm_client import Callbacks, DefaultCallbacks, LLMClient
 from llm_client.prompt import (
     PROMPT_GENERATE_META,
     PROMPT_TIER1_EXPLICIT,

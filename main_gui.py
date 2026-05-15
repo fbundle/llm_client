@@ -44,13 +44,14 @@ from PySide6.QtWidgets import (
 )
 
 from llm_client import (
-    LLMClient, Callbacks,
+    LLMClient,
     PROMPT_GENERATE_META,
     PROMPT_TIER1_EXPLICIT,
     PROMPT_TIER2_GUIDED,
     PROMPT_TIER3_CONCISE,
     PROMPT_TIER4_MINIMAL,
     SYSTEM_PROMPT,
+    ToolList, discover_tools,
 )
 from tools.screen import get_screenshot
 
@@ -123,14 +124,12 @@ class AgentThread(QThread):
         app: LLMClient,
         run_id: int,
         user_message: str,
-        enabled: set[str],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._app = app
         self._run_id = run_id
         self._user_message = user_message
-        self._enabled = enabled
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -139,7 +138,7 @@ class AgentThread(QThread):
     def run(self) -> None:
         try:
             cb = _ThreadCallbacks(self)
-            self._app.run_task(self._user_message, self._enabled, cb)
+            self._app.append_user_message_and_generate(self._user_message, cb)
             self.finished_signal.emit(self._run_id)
         except Exception as e:
             self.log_signal.emit("error", f"\nFatal: {e}\n")
@@ -184,17 +183,18 @@ class GenerateThread(QThread):
     result_signal = Signal(str)
     error_signal = Signal(str)
 
-    def __init__(self, app: LLMClient, meta_prompt: str, parent: QWidget | None = None) -> None:
+    def __init__(self, app: LLMClient, meta_prompt: str, system_prompt: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._app = app
         self._meta_prompt = meta_prompt
+        self._system_prompt = system_prompt
         self._stop_event = threading.Event()
 
     def run(self) -> None:
         try:
             cb = _ThreadCallbacks(self)
             self.log_signal.emit("info", "\n[auto-generate]\n")
-            result = self._app.generate_prompt(self._meta_prompt, cb)
+            result = self._app.generate_prompt(self._meta_prompt, self._system_prompt, cb)
             self.result_signal.emit(result)
             self.log_signal.emit("info", "\n")
         except Exception as e:
@@ -212,16 +212,18 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
 
         self._env = _read_env()
+        tools_dir = Path(__file__).resolve().parent / "tools"
+        self._all_tools = discover_tools(tools_dir)
         self._app = LLMClient(
             base_url=self._env.get("OPENAI_BASE_URL", ""),
             api_key=self._env.get("OPENAI_API_KEY", ""),
             model=self._env.get("OPENAI_MODEL", ""),
-            tools_dir=Path(__file__).resolve().parent / "tools",
+            tool=ToolList(*self._all_tools.values()),
             temperature=float(self._env.get("OPENAI_TEMPERATURE", "0.7")),
             top_p=float(self._env.get("OPENAI_TOP_P", "1.0")),
             max_tokens=int(self._env.get("OPENAI_MAX_TOKENS", "4096")),
-            system_prompt=SYSTEM_PROMPT,
         )
+        self._app.append_system_message(SYSTEM_PROMPT)
         self._tool_checkboxes: dict[str, QCheckBox] = {}
 
         self._agent_thread: AgentThread | None = None
@@ -399,7 +401,7 @@ class MainWindow(QMainWindow):
 
         # Tools
         layout.addWidget(QLabel("Tools"))
-        for key in self._app.tool_instances:
+        for key in self._all_tools:
             label = _TOOL_LABELS.get(key, key.replace("_", " ").title())
             cb = QCheckBox(label)
             cb.setChecked(True)
@@ -530,8 +532,8 @@ class MainWindow(QMainWindow):
 
     def _clear_history(self) -> None:
         self._log.clear()
-        self._app.set_system_prompt(self._sys_edit.toPlainText().strip())
         self._app.clear_history()
+        self._app.append_system_message(self._sys_edit.toPlainText().strip())
 
     # ------------------------------------------------------------------
     # Presets
@@ -542,17 +544,17 @@ class MainWindow(QMainWindow):
             return
         text = _PROMPTS.get(name)
         if text is not None:
-            self._app.set_system_prompt(text)
             self._sys_edit.setPlainText(text)
+            self._app.clear_history()
+            self._app.append_system_message(text)
 
     def _auto_generate_prompt(self) -> None:
         current = self._sys_edit.toPlainText().strip()
         if not current:
             return
-        self._app.set_system_prompt(current)
         meta_prompt = PROMPT_GENERATE_META.format(current=current)
         self._gen_btn.setEnabled(False)
-        self._gen_thread = GenerateThread(self._app, meta_prompt)
+        self._gen_thread = GenerateThread(self._app, meta_prompt, current)
         self._gen_thread.log_signal.connect(self._append_log)
         self._gen_thread.result_signal.connect(self._on_generate_result)
         self._gen_thread.error_signal.connect(
@@ -562,6 +564,8 @@ class MainWindow(QMainWindow):
 
     def _on_generate_result(self, text: str) -> None:
         self._sys_edit.setPlainText(text)
+        self._app.clear_history()
+        self._app.append_system_message(text)
 
     # ------------------------------------------------------------------
     # Run / Stop
@@ -584,13 +588,13 @@ class MainWindow(QMainWindow):
         self._refresh_screenshot()
 
         # Sync state from UI into app
-        self._app.set_system_prompt(self._sys_edit.toPlainText().strip())
         self._app.set_model(model=self._model_edit.text().strip() or self._app.model)
 
-        enabled = {k for k, cb in self._tool_checkboxes.items() if cb.isChecked()}
+        checked = [self._all_tools[k] for k, cb in self._tool_checkboxes.items() if cb.isChecked()]
+        self._app.set_tool(ToolList(*checked) if checked else None)
 
         self._agent_thread = AgentThread(
-            self._app, self._run_id, task, enabled)
+            self._app, self._run_id, task)
         self._agent_thread.log_signal.connect(self._append_log)
         self._agent_thread.screenshot_signal.connect(self._display_screenshot)
         self._agent_thread.finished_signal.connect(self._on_done)
