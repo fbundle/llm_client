@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from llm_client import LLMClient, SYSTEM_PROMPT, ToolList, discover_tools
+from llm_client import LLMClient, NameMapping, SYSTEM_PROMPT, ToolList, discover_tools
 
 
 def _must_get_env(key: str) -> str:
@@ -18,7 +18,18 @@ def main() -> None:
     load_dotenv()
 
     tools_dir = Path(__file__).resolve().parent / "llm_client_tools"
-    all_tools = discover_tools(tools_dir)
+    raw_tools = discover_tools(tools_dir)
+
+    all_tools: dict[str, object] = {}
+    for key, tool in raw_tools.items():
+        schemas = tool.tool_schemas()
+        name_map = {}
+        for old_name in schemas:
+            if old_name.startswith(f"{key}_"):
+                continue
+            name_map[old_name] = f"{key}_{old_name}"
+        all_tools[key] = NameMapping(tool, name_map) if name_map else tool
+
     tool = ToolList(*all_tools.values())
 
     app = LLMClient(

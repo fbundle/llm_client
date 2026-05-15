@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from llm_client import (
     LLMClient,
+    NameMapping,
     PROMPT_GENERATE_META,
     PROMPT_TIER1_EXPLICIT,
     PROMPT_TIER2_GUIDED,
@@ -191,7 +192,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
 
         self._env = _read_env()
-        self._all_tools: dict[str, object] = {
+        raw_tools: dict[str, object] = {
             "mouse": MouseTool(),
             "keyboard": KeyboardTool(),
             "screen": ScreenTool(),
@@ -199,9 +200,20 @@ class MainWindow(QMainWindow):
         try:
             tools_dir = Path(__file__).resolve().parent.parent / "llm_client_tools"
             extra = discover_tools(tools_dir)
-            self._all_tools.update(extra)
+            raw_tools.update(extra)
         except Exception:
             pass  # frozen app — only built-in tools available
+
+        self._all_tools: dict[str, object] = {}
+        for key, tool in raw_tools.items():
+            schemas = tool.tool_schemas()
+            name_map = {}
+            for old_name in schemas:
+                if old_name.startswith(f"{key}_"):
+                    continue
+                name_map[old_name] = f"{key}_{old_name}"
+            self._all_tools[key] = NameMapping(tool, name_map) if name_map else tool
+
         self._app = LLMClient(
             base_url=self._env.get("OPENAI_BASE_URL", ""),
             api_key=self._env.get("OPENAI_API_KEY", ""),
@@ -370,7 +382,7 @@ class MainWindow(QMainWindow):
         for key in self._all_tools:
             label = key
             cb = QCheckBox(label)
-            cb.setChecked(True)
+            cb.setChecked(False)
             self._tool_checkboxes[key] = cb
             layout.addWidget(cb)
 
@@ -516,7 +528,21 @@ class MainWindow(QMainWindow):
         current = self._sys_edit.toPlainText().strip()
         if not current:
             return
-        meta_prompt = PROMPT_GENERATE_META.format(current=current)
+
+        # Build tool description block from enabled tools only
+        import json
+        tool_lines: list[str] = []
+        for key, cb in self._tool_checkboxes.items():
+            if not cb.isChecked():
+                continue
+            tool = self._all_tools.get(key)
+            if tool is None:
+                continue
+            for name, schema in tool.tool_schemas().items():
+                tool_lines.append(json.dumps(schema["function"]))
+        tool_block = "\n".join(tool_lines) if tool_lines else "(no tools enabled)"
+
+        meta_prompt = PROMPT_GENERATE_META.format(current=current, tools=tool_block)
         self._gen_btn.setEnabled(False)
         self._gen_thread = GenerateThread(self._app, meta_prompt, current)
         self._gen_thread.log_signal.connect(self._append_log)

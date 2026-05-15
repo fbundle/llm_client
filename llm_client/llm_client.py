@@ -163,6 +163,7 @@ def _stream_response(
     )
 
     content_buf = ""
+    reasoning_buf = ""
     tool_call_buf: dict[int, ToolCall] = {}
 
     for chunk in stream:
@@ -175,6 +176,7 @@ def _stream_response(
 
         if reasoning := getattr(delta, "reasoning_content", None):
             cb.on_reasoning(reasoning)
+            reasoning_buf += reasoning
 
         if delta.content:
             cb.on_content(delta.content)
@@ -199,14 +201,21 @@ def _stream_response(
 
     tool_calls = sorted(tool_call_buf.values(), key=lambda t: t.id)
 
+    if reasoning_buf:
+        xml_calls, reasoning_buf = _parse_xml_tool_calls(reasoning_buf)
+        if xml_calls:
+            for tc in xml_calls:
+                cb.on_tool_call(tc.name, tc.kwargs_str)
+            tool_calls += xml_calls
+
     if content_buf:
         xml_calls, content_buf = _parse_xml_tool_calls(content_buf)
         if xml_calls:
             for tc in xml_calls:
                 cb.on_tool_call(tc.name, tc.kwargs_str)
             tool_calls += xml_calls
-            tool_calls = sorted(tool_calls, key=lambda t: t.id)
 
+    tool_calls = sorted(tool_calls, key=lambda t: t.id)
     return content_buf, tool_calls
 
 
