@@ -8,5 +8,6 @@ dependencies = [
     "pillow>=12.2.0",
     "pyautogui>=0.9.54",
     "pyscreeze>=1.0.1",
+    "pyside6>=6.10.0",
     "python-dotenv>=1.2.2",
 ]

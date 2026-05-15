@@ -372,21 +372,10 @@ def run_task(
     model: str,
     tools: list[ChatCompletionFunctionToolParam],
     dispatcher: ToolList,
-    task: str,
+    messages: list[ChatCompletionMessageParam],
     cb: Callbacks,
-    system_prompt: str = SYSTEM_PROMPT,
-) -> None:
-    system: ChatCompletionSystemMessageParam = {
-        "role": "system",
-        "content": system_prompt,
-    }
-    messages: list[ChatCompletionMessageParam] = [
-        system,
-        ChatCompletionUserMessageParam(
-            role="user",
-            content=[ChatCompletionContentPartTextParam(type="text", text=task)],
-        ),
-    ]
+) -> list[ChatCompletionMessageParam]:
+    """Run the agent loop, returning the updated message list."""
 
     while not cb.is_stopped():
         try:
@@ -399,7 +388,7 @@ def run_task(
             break
 
         tool_results, _ = execute_tools(tool_calls, dispatcher, cb)
-        messages += [
+        messages = messages + [
             ChatCompletionAssistantMessageParam(
                 role="assistant",
                 content=content or None,
@@ -409,6 +398,8 @@ def run_task(
             ),
             *tool_results,
         ]
+
+    return messages
 
 
 def _make_tool_call_param(tc: ToolCall) -> ChatCompletionMessageFunctionToolCallParam:

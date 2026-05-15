@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from dotenv import load_dotenv
+from openai.types.chat import (
+    ChatCompletionContentPartTextParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
 
 from app import (
+    SYSTEM_PROMPT,
     Callbacks,
     create_client,
     create_dispatcher,
@@ -46,11 +53,19 @@ def main() -> None:
     tools = list(dispatcher.tool_schemas().values())
     cb = CliCallbacks()
 
+    messages: list[ChatCompletionMessageParam] = [
+        ChatCompletionSystemMessageParam(role="system", content=SYSTEM_PROMPT),
+    ]
+
     while True:
         task = input("Task: ").strip()
         if not task:
             continue
-        run_task(client, model, tools, dispatcher, task, cb)
+        messages.append(ChatCompletionUserMessageParam(
+            role="user",
+            content=[ChatCompletionContentPartTextParam(type="text", text=task)],
+        ))
+        messages = run_task(client, model, tools, dispatcher, messages, cb)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import threading
 from io import BytesIO
@@ -8,9 +9,40 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from PIL import Image as PIL_Image, ImageTk
-import tkinter as tk
-from tkinter import ttk
+from PIL import Image as PIL_Image
+
+from PySide6.QtCore import (
+    QEvent,
+    QThread,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QImage,
+    QPixmap,
+    QTextCharFormat,
+    QTextCursor,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPlainTextEdit,
+    QPushButton,
+    QSplitter,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app import (
     PROMPT_TIER1_EXPLICIT,
@@ -41,11 +73,10 @@ _PROMPTS: dict[str, str] = {
 
 
 # ------------------------------------------------------------------
-# .env persistence
+# .env read-only (never writes)
 # ------------------------------------------------------------------
 
 def _read_env() -> dict[str, str]:
-    """Return all KEY=VALUE pairs from .env (stripped of quotes)."""
     result: dict[str, str] = {}
     if not _ENV_PATH.exists():
         return result
@@ -58,30 +89,135 @@ def _read_env() -> dict[str, str]:
     return result
 
 
+# ------------------------------------------------------------------
+# Log formatter — converts tag/text to QTextCharFormat
+# ------------------------------------------------------------------
+
+_TAG_COLORS: dict[str, QColor] = {
+    "reasoning":   QColor("#888888"),
+    "tool_call":   QColor("#3d8fd9"),
+    "tool_result": QColor("#4a9a4a"),
+    "error":       QColor("#d04040"),
+    "info":        QColor("#999999"),
+}
+
+
+def _format_for_tag(tag: str, text: str) -> tuple[str, QTextCharFormat]:
+    fmt = QTextCharFormat()
+    if tag in _TAG_COLORS:
+        fmt.setForeground(_TAG_COLORS[tag])
+    return text, fmt
+
 
 # ------------------------------------------------------------------
-# GUI
+# Agent worker thread
 # ------------------------------------------------------------------
 
-class App:
-    def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.root.title("LLM Desktop Agent")
-        self.root.geometry("1000x600")
+class AgentThread(QThread):
+    log_signal = Signal(str, str)        # tag, text
+    screenshot_signal = Signal(str)      # data_url
+    finished_signal = Signal(int, object)  # run_id, messages
 
+    def __init__(
+        self,
+        messages: list,
+        run_id: int,
+        enabled: set[str],
+        tool_instances: dict,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._messages = messages
+        self._run_id = run_id
+        self._enabled = enabled
+        self._tool_instances = tool_instances
         self._stop_event = threading.Event()
-        self._agent_thread: threading.Thread | None = None
-        self._run_id = 0
 
-        self._pending_logs: list[tuple[str, str]] = []
-        self._pending_screenshot: str | None = None
-        self._lock = threading.Lock()
+    def stop(self) -> None:
+        self._stop_event.set()
 
-        self._photo: ImageTk.PhotoImage | None = None
+    def run(self) -> None:
+        try:
+            load_dotenv()
+            client = create_client()
+            model = os.environ.get("OPENAI_MODEL", "")
+            dispatcher = create_dispatcher(self._enabled, instances=self._tool_instances)
+            tools = list(dispatcher.tool_schemas().values())
+            cb = _ThreadCallbacks(self)
+            result = run_task(client, model, tools, dispatcher, self._messages, cb)
+            self.finished_signal.emit(self._run_id, result)
+        except Exception as e:
+            self.log_signal.emit("error", f"\nFatal: {e}\n")
+            self.finished_signal.emit(self._run_id, self._messages)
+
+
+class _ThreadCallbacks:
+    def __init__(self, thread: AgentThread) -> None:
+        self._t = thread
+
+    def on_extra_content(self, data: str) -> None:
+        self._t.log_signal.emit("reasoning", f"\n[extra_content: {data}]")
+
+    def on_reasoning(self, token: str) -> None:
+        self._t.log_signal.emit("reasoning", token)
+
+    def on_content(self, token: str) -> None:
+        self._t.log_signal.emit("content", token)
+
+    def on_tool_call(self, name: str, kwargs_str: str) -> None:
+        self._t.log_signal.emit("tool_call", f"\n[{name}({kwargs_str})]")
+
+    def on_tool_result(self, output: str) -> None:
+        self._t.log_signal.emit("tool_result", f"  -> {output}")
+
+    def on_tool_error(self, error: str) -> None:
+        self._t.log_signal.emit("error", f"\n  ! {error}")
+
+    def on_screenshot(self, data_url: str) -> None:
+        self._t.screenshot_signal.emit(data_url)
+
+    def is_stopped(self) -> bool:
+        return self._t._stop_event.is_set()
+
+
+# ------------------------------------------------------------------
+# Generate prompt worker thread
+# ------------------------------------------------------------------
+
+class GenerateThread(QThread):
+    log_signal = Signal(str, str)
+    result_signal = Signal(str)
+    error_signal = Signal(str)
+
+    def __init__(self, current_prompt: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._current = current_prompt
+
+    def run(self) -> None:
+        try:
+            load_dotenv()
+            client = create_client()
+            model = os.environ.get("OPENAI_MODEL", "")
+            cb = _ThreadCallbacks(self)  # type: ignore[arg-type]
+            self.log_signal.emit("info", "\n[auto-generate]\n")
+            result = generate_prompt(client, model, self._current, cb)
+            self.result_signal.emit(result)
+            self.log_signal.emit("info", "\n")
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+# ------------------------------------------------------------------
+# Main window
+# ------------------------------------------------------------------
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("LLM Desktop Agent")
+        self.resize(1200, 750)
+
         self._env = _read_env()
-
-        # Create tool instances once — they hold state (JS runtime,
-        # chess engine process, etc.)
         self._tool_instances = {
             "mouse": MouseTool(),
             "keyboard": KeyboardTool(),
@@ -89,10 +225,17 @@ class App:
             "js_runtime": JSRuntimeTool(),
             "screen": ScreenTool(),
         }
+        self._tool_checkboxes: dict[str, QCheckBox] = {}
 
-        self._tool_vars: dict[str, tk.BooleanVar] = {}
+        self._agent_thread: AgentThread | None = None
+        self._gen_thread: GenerateThread | None = None
+        self._run_id = 0
+        self._messages: list = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+        ]
+
         self._build_ui()
-        self._flush_updates()
+        self._apply_style()
         self._refresh_screenshot()
 
     # ------------------------------------------------------------------
@@ -100,181 +243,168 @@ class App:
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        style = ttk.Style()
-        style.configure("Red.TButton", foreground="red")
-        style.map("Red.TButton", foreground=[("disabled", "gray")])
+        # Central widget: screenshot (top) | log + controls (bottom)
+        central_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.setCentralWidget(central_splitter)
 
-        # Vertical split: screenshot area (top) | log area (bottom)
-        vpane = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
-        vpane.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        # Screenshot
+        self._scr_label = QLabel()
+        self._scr_label.setObjectName("scrLabel")
+        self._scr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._scr_label.setMinimumSize(200, 200)
+        central_splitter.addWidget(self._scr_label)
 
-        # ----- Top pane: left | screenshot | right -----
-        self._hpane = hpane = ttk.PanedWindow(vpane, orient=tk.HORIZONTAL)
+        # Bottom: log + controls
+        bottom = QWidget()
+        bottom_layout = QVBoxLayout(bottom)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(4)
 
-        # Left panel — full
-        self._left_full = ttk.Frame(hpane, width=220)
-        self._build_left_panel(self._left_full)
-        hpane.add(self._left_full, weight=0)
-
-        # Left panel — collapsed (button only)
-        self._left_collapsed = ttk.Frame(hpane, width=36)
-        ttk.Button(self._left_collapsed, text="≡", command=self._toggle_left_panel, width=2).pack(anchor="nw", padx=(4, 0), pady=(4, 0))
-
-        scr = ttk.Frame(hpane)
-        self._build_screenshot(scr)
-        hpane.add(scr, weight=1)
-
-        # Right panel — full
-        self._right_full = ttk.Frame(hpane, width=280)
-        self._build_right_panel(self._right_full)
-        hpane.add(self._right_full, weight=0)
-
-        # Right panel — collapsed (button only)
-        self._right_collapsed = ttk.Frame(hpane, width=36)
-        ttk.Button(self._right_collapsed, text="≡", command=self._toggle_right_panel, width=2).pack(anchor="ne", padx=(0, 4), pady=(4, 0))
-
-        self._left_visible = True
-        self._right_visible = True
-
-        vpane.add(hpane, weight=1)
-
-        # ----- Bottom pane: log + controls -----
-        bottom = ttk.Frame(vpane)
-        vpane.add(bottom, weight=1)
-        bottom.grid_rowconfigure(0, weight=1)
-        bottom.grid_columnconfigure(0, weight=1)
-
-        self._log = tk.Text(bottom, height=8, wrap=tk.WORD, state=tk.DISABLED,
-                            font=("SF Mono", 11))
-        self._log.grid(row=0, column=0, sticky="nsew")
-
-        self._log.tag_configure("reasoning", foreground="gray")
-        self._log.tag_configure("content", foreground="black")
-        self._log.tag_configure("tool_call", foreground="#0066cc")
-        self._log.tag_configure("tool_result", foreground="#008800")
-        self._log.tag_configure("error", foreground="#cc0000")
-        self._log.tag_configure("info", foreground="#888888")
-
-        scrollbar = ttk.Scrollbar(bottom, command=self._log.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self._log.configure(yscrollcommand=scrollbar.set)
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFont(QFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)))
+        bottom_layout.addWidget(self._log)
 
         # Control bar
-        control = ttk.Frame(bottom)
-        control.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        control.grid_columnconfigure(0, weight=1)
+        control = QWidget()
+        control_layout = QHBoxLayout(control)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.setSpacing(6)
 
-        self._task_entry = tk.Text(control, height=3, font=("SF Mono", 12), wrap=tk.WORD)
-        self._task_entry.grid(row=0, column=0, sticky="ew")
-        self._task_entry.bind("<Return>", lambda _e: self._run() or "break")
-        self._task_entry.bind("<Shift-Return>", lambda _e: self._task_entry.insert(tk.INSERT, "\n") or "break")
+        self._task_entry = QLineEdit()
+        self._task_entry.setPlaceholderText("Enter task...")
+        self._task_entry.returnPressed.connect(self._run)
+        control_layout.addWidget(self._task_entry)
 
-        self._run_btn = ttk.Button(control, text="Run", command=self._run)
-        self._run_btn.grid(row=0, column=1, padx=(4, 0))
+        self._run_btn = QPushButton("Run")
+        self._run_btn.clicked.connect(self._run)
+        control_layout.addWidget(self._run_btn)
 
-        self._stop_btn = ttk.Button(control, text="Stop", command=self._stop, state=tk.DISABLED, style="Red.TButton")
-        self._stop_btn.grid(row=0, column=2, padx=(4, 0))
+        self._stop_btn = QPushButton("Stop")
+        self._stop_btn.setObjectName("stopBtn")
+        self._stop_btn.clicked.connect(self._stop)
+        self._stop_btn.setEnabled(False)
+        control_layout.addWidget(self._stop_btn)
 
-    def _build_left_panel(self, parent: ttk.Frame) -> None:
-        # Collapse button — always visible at top
-        ttk.Button(parent, text="≡", command=self._toggle_left_panel, width=2).pack(anchor="nw", padx=(4, 0), pady=(4, 0))
+        bottom_layout.addWidget(control)
+        central_splitter.addWidget(bottom)
+        central_splitter.setStretchFactor(0, 2)
+        central_splitter.setStretchFactor(1, 1)
 
-        # Content — collapsible (includes title + fields)
-        self._left_content = frame = ttk.Frame(parent, padding=4)
-        frame.pack(fill=tk.BOTH, expand=True)
-        frame.grid_columnconfigure(0, weight=0)
+        # Left dock — Environment
+        self._left_dock = QDockWidget("Environment")
+        self._left_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        self._left_dock.setWidget(self._build_left_panel())
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._left_dock)
 
-        ttk.Label(frame, text="Environment", font=("SF Mono", 11, "bold")).grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
+        # Right dock — System Prompt
+        self._right_dock = QDockWidget("System Prompt")
+        self._right_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        self._right_dock.setWidget(self._build_right_panel())
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._right_dock)
 
-        # BASE_URL
-        ttk.Label(frame, text="BASE_URL").grid(row=1, column=0, sticky="e", padx=(0, 4))
-        self._url_var = tk.StringVar(value=self._env.get("OPENAI_BASE_URL", ""))
-        url_entry = ttk.Entry(frame, textvariable=self._url_var, width=28)
-        url_entry.grid(row=1, column=1, sticky="ew", pady=(0, 2))
-        url_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_BASE_URL", self._url_var.get()))
+        # View menu — toggles docks back after closing
+        menu = self.menuBar().addMenu("View")
+        menu.addAction(self._left_dock.toggleViewAction())
+        menu.addAction(self._right_dock.toggleViewAction())
 
-        # API_KEY (masked)
-        ttk.Label(frame, text="API_KEY").grid(row=2, column=0, sticky="e", padx=(0, 4))
-        self._key_var = tk.StringVar(value=self._env.get("OPENAI_API_KEY", ""))
-        key_entry = ttk.Entry(frame, textvariable=self._key_var, width=28, show="*")
-        key_entry.grid(row=2, column=1, sticky="ew", pady=(0, 2))
-        key_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_API_KEY", self._key_var.get()))
+    def _build_left_panel(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
 
-        # MODEL
-        ttk.Label(frame, text="MODEL").grid(row=3, column=0, sticky="e", padx=(0, 4))
-        self._model_var = tk.StringVar(value=self._env.get("OPENAI_MODEL", ""))
-        model_entry = ttk.Entry(frame, textvariable=self._model_var, width=28)
-        model_entry.grid(row=3, column=1, sticky="ew", pady=(0, 2))
-        model_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_MODEL", self._model_var.get()))
+        # URL
+        layout.addWidget(QLabel("BASE_URL"))
+        self._url_edit = QLineEdit(self._env.get("OPENAI_BASE_URL", ""))
+        self._url_edit.setPlaceholderText("https://api.openai.com/v1")
+        layout.addWidget(self._url_edit)
+
+        # Key
+        layout.addWidget(QLabel("API_KEY"))
+        self._key_edit = QLineEdit(self._env.get("OPENAI_API_KEY", ""))
+        self._key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self._key_edit)
+
+        # Model
+        layout.addWidget(QLabel("MODEL"))
+        self._model_edit = QLineEdit(self._env.get("OPENAI_MODEL", ""))
+        layout.addWidget(self._model_edit)
+
+        # Save env to os.environ
+        for edit, key in [
+            (self._url_edit, "OPENAI_BASE_URL"),
+            (self._key_edit, "OPENAI_API_KEY"),
+            (self._model_edit, "OPENAI_MODEL"),
+        ]:
+            edit.editingFinished.connect(
+                lambda e=edit, k=key: self._save_env_var(k, e.text()))
 
         # Sampling
-        ttk.Label(frame, text="Sampling", font=("SF Mono", 11, "bold")).grid(
-            row=4, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        label = QLabel("Sampling")
+        label.setStyleSheet("font-weight: bold; margin-top: 12px;")
+        layout.addWidget(label)
 
-        ttk.Label(frame, text="TEMPERATURE").grid(row=5, column=0, sticky="e", padx=(0, 4))
-        self._temp_var = tk.StringVar(value=self._env.get("OPENAI_TEMPERATURE", "0.7"))
-        ttk.Entry(frame, textvariable=self._temp_var, width=28).grid(row=5, column=1, sticky="ew", pady=(0, 2))
+        layout.addWidget(QLabel("TEMPERATURE"))
+        self._temp_edit = QLineEdit(self._env.get("OPENAI_TEMPERATURE", "0.7"))
+        layout.addWidget(self._temp_edit)
 
-        ttk.Label(frame, text="TOP_P").grid(row=6, column=0, sticky="e", padx=(0, 4))
-        self._top_p_var = tk.StringVar(value=self._env.get("OPENAI_TOP_P", "1.0"))
-        ttk.Entry(frame, textvariable=self._top_p_var, width=28).grid(row=6, column=1, sticky="ew", pady=(0, 2))
+        layout.addWidget(QLabel("TOP_P"))
+        self._top_p_edit = QLineEdit(self._env.get("OPENAI_TOP_P", "1.0"))
+        layout.addWidget(self._top_p_edit)
 
-        ttk.Label(frame, text="MAX_TOKENS").grid(row=7, column=0, sticky="e", padx=(0, 4))
-        self._max_tok_var = tk.StringVar(value=self._env.get("OPENAI_MAX_TOKENS", "4096"))
-        ttk.Entry(frame, textvariable=self._max_tok_var, width=28).grid(row=7, column=1, sticky="ew", pady=(0, 2))
+        layout.addWidget(QLabel("MAX_TOKENS"))
+        self._max_tok_edit = QLineEdit(self._env.get("OPENAI_MAX_TOKENS", "4096"))
+        layout.addWidget(self._max_tok_edit)
 
-        # Clear History — always visible at bottom
-        ttk.Button(parent, text="Clear History", command=self._clear_history, style="Red.TButton").pack(
-            side=tk.BOTTOM, fill=tk.X, padx=4, pady=4)
+        layout.addStretch()
 
-    def _build_screenshot(self, parent: ttk.Frame) -> None:
-        self._scr_frame = ttk.Frame(parent)
-        self._scr_frame.pack(fill=tk.BOTH, expand=True, padx=4)
-        self._scr_frame.grid_rowconfigure(0, weight=1)
-        self._scr_frame.grid_columnconfigure(0, weight=1)
+        clear = QPushButton("Clear History")
+        clear.setStyleSheet("color: #e05555;")
+        clear.clicked.connect(self._clear_history)
+        layout.addWidget(clear)
 
-        self._scr_label = ttk.Label(self._scr_frame, background="#1e1e1e")
-        self._scr_label.grid(row=0, column=0, sticky="nsew")
+        return w
 
-    def _build_right_panel(self, parent: ttk.Frame) -> None:
-        # Collapse button — always visible at top
-        ttk.Button(parent, text="≡", command=self._toggle_right_panel, width=2).pack(anchor="ne", padx=(0, 4), pady=(4, 0))
+    def _build_right_panel(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
 
-        # Content — collapsible (includes title + fields)
-        self._right_content = frame = ttk.Frame(parent, padding=4)
-        frame.pack(fill=tk.BOTH, expand=True)
-        frame.grid_rowconfigure(1, weight=1)
-        frame.grid_columnconfigure(0, weight=1)
-
-        ttk.Label(frame, text="System Prompt", font=("SF Mono", 11, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 4))
-
-        self._sys_text = tk.Text(frame, width=34, height=14, wrap=tk.WORD,
-                                 font=("SF Mono", 10))
-        self._sys_text.grid(row=1, column=0, sticky="nsew", pady=(0, 4))
-        self._sys_text.insert("1.0", SYSTEM_PROMPT)
+        # System prompt editor
+        layout.addWidget(QLabel("System Prompt"))
+        self._sys_edit = QTextEdit()
+        self._sys_edit.setFont(QFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)))
+        self._sys_edit.setPlainText(SYSTEM_PROMPT)
+        self._sys_edit.setMinimumHeight(150)
+        layout.addWidget(self._sys_edit, stretch=1)
 
         # Preset selector
-        preset_frame = ttk.Frame(frame)
-        preset_frame.grid(row=2, column=0, sticky="ew", pady=(0, 8))
-        preset_frame.grid_columnconfigure(0, weight=1)
-        ttk.Label(preset_frame, text="Preset:", font=("SF Mono", 9)).pack(side=tk.LEFT, padx=(0, 4))
-        self._preset_var = tk.StringVar(value="custom")
-        self._preset_combo = ttk.Combobox(preset_frame, textvariable=self._preset_var,
-                                          font=("SF Mono", 9), state="readonly")
-        self._preset_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._preset_combo.bind("<<ComboboxSelected>>", self._load_preset)
-        self._preset_combo["values"] = ["custom"] + list(_PROMPTS)
+        preset_layout = QHBoxLayout()
+        preset_layout.setSpacing(4)
+        preset_layout.addWidget(QLabel("Preset:"))
+        self._preset_combo = QComboBox()
+        self._preset_combo.addItem("custom")
+        for name in _PROMPTS:
+            self._preset_combo.addItem(name)
+        self._preset_combo.currentTextChanged.connect(self._load_preset)
+        preset_layout.addWidget(self._preset_combo)
+        layout.addLayout(preset_layout)
 
-        # Auto-generate button
-        self._gen_btn = ttk.Button(frame, text="Auto Generate Prompt", command=self._auto_generate_prompt)
-        self._gen_btn.grid(row=3, column=0, sticky="ew", pady=(4, 8))
+        # Auto-generate
+        self._gen_btn = QPushButton("Auto Generate Prompt")
+        self._gen_btn.clicked.connect(self._auto_generate_prompt)
+        layout.addWidget(self._gen_btn)
 
         # Tools
-        ttk.Label(frame, text="Tools", font=("SF Mono", 11, "bold")).grid(
-            row=4, column=0, sticky="w", pady=(0, 4))
-
+        layout.addWidget(QLabel("Tools"))
         tool_names = [
             ("mouse", "Mouse"),
             ("keyboard", "Keyboard"),
@@ -283,73 +413,92 @@ class App:
             ("screen", "Screen"),
         ]
         for key, label in tool_names:
-            var = tk.BooleanVar(value=True)
-            self._tool_vars[key] = var
-            ttk.Checkbutton(frame, text=label, variable=var).grid(
-                row=5 + list(self._tool_vars).index(key), column=0, sticky="w")
+            cb = QCheckBox(label)
+            cb.setChecked(True)
+            self._tool_checkboxes[key] = cb
+            layout.addWidget(cb)
+
+        return w
 
     # ------------------------------------------------------------------
-    # Preset prompts
+    # Styling (dark / light follows system)
     # ------------------------------------------------------------------
 
-    def _load_preset(self, _event: object = None) -> None:
-        name = self._preset_var.get()
-        if name == "custom":
-            return
-        text = _PROMPTS.get(name)
-        if text is not None:
-            self._sys_text.delete("1.0", tk.END)
-            self._sys_text.insert("1.0", text)
+    _DARK = """
+        QMainWindow { background-color: #1a1a1a; }
+        QMenuBar { background-color: #252525; color: #cccccc; border-bottom: 1px solid #333333; }
+        QMenuBar::item:selected { background-color: #3a3a3a; }
+        QDockWidget { color: #cccccc; }
+        QDockWidget::title { background-color: #252525; padding: 6px 8px; border-bottom: 1px solid #333333; }
+        QLabel { color: #aaaaaa; font-size: 12px; }
+        QLineEdit, QTextEdit, QPlainTextEdit, QComboBox { background-color: #2a2a2a; color: #cccccc; border: 1px solid #3a3a3a; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+        QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color: #5ea2e8; }
+        QPushButton { background-color: #3a3a3a; color: #cccccc; border: 1px solid #4a4a4a; border-radius: 4px; padding: 6px 14px; font-size: 12px; }
+        QPushButton:hover { background-color: #4a4a4a; }
+        QPushButton:pressed { background-color: #2a2a2a; }
+        QPushButton:disabled { color: #666666; }
+        QPushButton#stopBtn { color: #e05555; }
+        QPushButton#stopBtn:disabled { color: #885555; }
+        QCheckBox { color: #cccccc; font-size: 12px; }
+        QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #4a4a4a; border-radius: 3px; background-color: #2a2a2a; }
+        QCheckBox::indicator:checked { background-color: #5ea2e8; border-color: #5ea2e8; }
+        QComboBox::drop-down { border: none; padding-right: 6px; }
+        QComboBox QAbstractItemView { background-color: #2a2a2a; color: #cccccc; selection-background-color: #3a3a3a; border: 1px solid #3a3a3a; }
+        QScrollBar:vertical { background-color: #1a1a1a; width: 10px; border: none; }
+        QScrollBar::handle:vertical { background-color: #3a3a3a; border-radius: 5px; min-height: 20px; }
+        QScrollBar::handle:vertical:hover { background-color: #4a4a4a; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        QSplitter::handle { background-color: #333333; height: 2px; }
+        QLabel#scrLabel { background-color: #1a1a1a; border: none; }
+    """
 
-    def _auto_generate_prompt(self) -> None:
-        current = self._sys_text.get("1.0", "end-1c").strip()
-        if not current:
-            return
-        self._gen_btn.configure(state=tk.DISABLED)
-        threading.Thread(target=self._do_generate, args=(current,), daemon=True).start()
+    _LIGHT = """
+        QMainWindow { background-color: #f5f5f5; }
+        QMenuBar { background-color: #e8e8e8; color: #333333; border-bottom: 1px solid #d0d0d0; }
+        QMenuBar::item:selected { background-color: #d0d0d0; }
+        QDockWidget { color: #333333; }
+        QDockWidget::title { background-color: #e8e8e8; padding: 6px 8px; border-bottom: 1px solid #d0d0d0; }
+        QLabel { color: #555555; font-size: 12px; }
+        QLineEdit, QTextEdit, QPlainTextEdit, QComboBox { background-color: #ffffff; color: #333333; border: 1px solid #c0c0c0; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+        QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color: #3d8fd9; }
+        QPushButton { background-color: #e0e0e0; color: #333333; border: 1px solid #c0c0c0; border-radius: 4px; padding: 6px 14px; font-size: 12px; }
+        QPushButton:hover { background-color: #d0d0d0; }
+        QPushButton:pressed { background-color: #c0c0c0; }
+        QPushButton:disabled { color: #999999; }
+        QCheckBox { color: #333333; font-size: 12px; }
+        QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #b0b0b0; border-radius: 3px; background-color: #ffffff; }
+        QCheckBox::indicator:checked { background-color: #3d8fd9; border-color: #3d8fd9; }
+        QComboBox::drop-down { border: none; padding-right: 6px; }
+        QComboBox QAbstractItemView { background-color: #ffffff; color: #333333; selection-background-color: #d0d0d0; border: 1px solid #c0c0c0; }
+        QScrollBar:vertical { background-color: #f0f0f0; width: 10px; border: none; }
+        QScrollBar::handle:vertical { background-color: #c0c0c0; border-radius: 5px; min-height: 20px; }
+        QScrollBar::handle:vertical:hover { background-color: #a0a0a0; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        QSplitter::handle { background-color: #d0d0d0; height: 2px; }
+        QLabel#scrLabel { background-color: #e8e8e8; border: none; }
+    """
 
-    def _do_generate(self, current: str) -> None:
+    _applying_style = False
+
+    def _apply_style(self) -> None:
+        if MainWindow._applying_style:
+            return
+        MainWindow._applying_style = True
         try:
-            load_dotenv()
-            client = create_client()
-            model = os.environ.get("OPENAI_MODEL", "")
-            self.root.after(0, lambda: self._push_log("info", "\n[auto-generate]\n"))
-            cb = _GuiCallbacks(self)
-            result = generate_prompt(client, model, current, cb)
-            self.root.after(0, lambda r=result: self._sys_text.delete("1.0", tk.END))
-            self.root.after(0, lambda r=result: self._sys_text.insert("1.0", r))
-            self.root.after(0, lambda: self._push_log("info", "\n"))
-        except Exception as e:
-            self.root.after(0, lambda: self._push_log("error", f"\nGenerate failed: {e}\n"))
+            if QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark:
+                self.setStyleSheet(self._DARK)
+            else:
+                self.setStyleSheet(self._LIGHT)
         finally:
-            self.root.after(0, lambda: self._gen_btn.configure(state=tk.NORMAL))
+            MainWindow._applying_style = False
+
+    def changeEvent(self, event: object) -> None:
+        if event.type() == QEvent.Type.StyleChange:
+            self._apply_style()
+        super().changeEvent(event)
 
     # ------------------------------------------------------------------
-    # Sidebar toggle
-    # ------------------------------------------------------------------
-
-    def _toggle_left_panel(self) -> None:
-        if self._left_visible:
-            self._hpane.forget(self._left_full)
-            self._hpane.insert(0, self._left_collapsed, weight=0)
-            self._left_visible = False
-        else:
-            self._hpane.forget(self._left_collapsed)
-            self._hpane.insert(0, self._left_full, weight=0)
-            self._left_visible = True
-
-    def _toggle_right_panel(self) -> None:
-        if self._right_visible:
-            self._hpane.forget(self._right_full)
-            self._hpane.add(self._right_collapsed, weight=0)
-            self._right_visible = False
-        else:
-            self._hpane.forget(self._right_collapsed)
-            self._hpane.add(self._right_full, weight=0)
-            self._right_visible = True
-
-    # ------------------------------------------------------------------
-    # Env persistence
+    # Env
     # ------------------------------------------------------------------
 
     def _save_env_var(self, key: str, value: str) -> None:
@@ -357,155 +506,136 @@ class App:
             os.environ[key] = value
 
     # ------------------------------------------------------------------
-    # Clear history
+    # Log / screenshot
     # ------------------------------------------------------------------
 
-    def _clear_history(self) -> None:
-        self._log.configure(state=tk.NORMAL)
-        self._log.delete("1.0", tk.END)
-        self._log.configure(state=tk.DISABLED)
+    def _append_log(self, tag: str, text: str) -> None:
+        text, fmt = _format_for_tag(tag, text)
+        cursor = self._log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text, fmt)
+        self._log.setTextCursor(cursor)
+        self._log.ensureCursorVisible()
 
-    # ------------------------------------------------------------------
-    # Thread-safe UI helpers
-    # ------------------------------------------------------------------
+    def resizeEvent(self, event: object) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_last_screenshot"):
+            self._display_screenshot(self._last_screenshot)
 
-    def _flush_updates(self) -> None:
-        with self._lock:
-            logs = self._pending_logs[:]
-            self._pending_logs.clear()
-            screenshot = self._pending_screenshot
-            self._pending_screenshot = None
-
-        if logs:
-            self._log.configure(state=tk.NORMAL)
-            for tag, text in logs:
-                self._log.insert(tk.END, text, tag)
-            self._log.see(tk.END)
-            self._log.configure(state=tk.DISABLED)
-
-        if screenshot is not None:
-            self._display_screenshot(screenshot)
-
-        self.root.after(50, self._flush_updates)
-
-    def _push_log(self, tag: str, text: str) -> None:
-        with self._lock:
-            self._pending_logs.append((tag, text))
-
-    def _push_screenshot(self, data_url: str) -> None:
-        with self._lock:
-            self._pending_screenshot = data_url
+    def _display_screenshot(self, data_url: str) -> None:
+        self._last_screenshot = data_url
+        try:
+            _header, b64 = data_url.split(",", 1)
+            img = QImage.fromData(base64.b64decode(b64))
+            pixmap = QPixmap.fromImage(img)
+            scaled = pixmap.scaled(
+                self._scr_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._scr_label.setPixmap(scaled)
+        except Exception:
+            pass
 
     def _refresh_screenshot(self) -> None:
         self._display_screenshot(get_screenshot(format="JPEG", max_size=1024))
 
-    def _display_screenshot(self, data_url: str) -> None:
-        try:
-            _header, b64 = data_url.split(",", 1)
-            img = PIL_Image.open(BytesIO(base64.b64decode(b64)))
+    def _clear_history(self) -> None:
+        self._log.clear()
+        self._messages = [{"role": "system", "content": self._sys_edit.toPlainText().strip()}]
 
-            max_w = self._scr_frame.winfo_width()
-            if max_w > 10:
-                img.thumbnail((max_w, 99999), PIL_Image.Resampling.LANCZOS)
+    # ------------------------------------------------------------------
+    # Presets
+    # ------------------------------------------------------------------
 
-            self._photo = ImageTk.PhotoImage(img)
-            self._scr_label.configure(image=self._photo)
-        except Exception:
-            pass
+    def _load_preset(self, name: str) -> None:
+        if name == "custom":
+            return
+        text = _PROMPTS.get(name)
+        if text is not None:
+            self._sys_edit.setPlainText(text)
+
+    def _auto_generate_prompt(self) -> None:
+        current = self._sys_edit.toPlainText().strip()
+        if not current:
+            return
+        self._gen_btn.setEnabled(False)
+        self._gen_thread = GenerateThread(current)
+        self._gen_thread.log_signal.connect(self._append_log)
+        self._gen_thread.result_signal.connect(self._on_generate_result)
+        self._gen_thread.error_signal.connect(
+            lambda e: self._append_log("error", f"\nGenerate failed: {e}\n"))
+        self._gen_thread.finished.connect(lambda: self._gen_btn.setEnabled(True))
+        self._gen_thread.start()
+
+    def _on_generate_result(self, text: str) -> None:
+        self._sys_edit.setPlainText(text)
 
     # ------------------------------------------------------------------
     # Run / Stop
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
-        task = self._task_entry.get("1.0", "end-1c").strip()
+        task = self._task_entry.text().strip()
         if not task:
             return
-        if self._agent_thread is not None and self._agent_thread.is_alive():
-            self._stop_event.set()
-            self._agent_thread.join(timeout=2)
+        if self._agent_thread is not None and self._agent_thread.isRunning():
+            self._agent_thread.stop()
+            self._agent_thread.wait(2000)
         self._run_id += 1
-        self._task_entry.delete("1.0", tk.END)
-        self._stop_event.clear()
-        self._task_entry.configure(state=tk.DISABLED)
-        self._run_btn.configure(state=tk.DISABLED)
-        self._stop_btn.configure(state=tk.NORMAL)
+        self._task_entry.clear()
+        self._task_entry.setEnabled(False)
+        self._run_btn.setEnabled(False)
+        self._stop_btn.setEnabled(True)
 
-        self._push_log("info", f"> {task}\n")
+        self._append_log("info", f"> {task}\n")
         self._refresh_screenshot()
 
-        self._agent_thread = threading.Thread(
-            target=self._run_agent, args=(task, self._run_id), daemon=True)
+        # Sync system prompt into messages
+        system_prompt = self._sys_edit.toPlainText().strip()
+        if self._messages and self._messages[0]["role"] == "system":
+            self._messages[0] = {"role": "system", "content": system_prompt}
+        else:
+            self._messages.insert(0, {"role": "system", "content": system_prompt})
+
+        # Append user task
+        self._messages.append({"role": "user", "content": [{"type": "text", "text": task}]})
+
+        enabled = {k for k, cb in self._tool_checkboxes.items() if cb.isChecked()}
+
+        self._agent_thread = AgentThread(
+            self._messages, self._run_id, enabled, self._tool_instances)
+        self._agent_thread.log_signal.connect(self._append_log)
+        self._agent_thread.screenshot_signal.connect(self._display_screenshot)
+        self._agent_thread.finished_signal.connect(self._on_done)
         self._agent_thread.start()
 
     def _stop(self) -> None:
-        self._stop_event.set()
-        self._push_log("info", "\n[stopped]\n")
-        self._task_entry.configure(state=tk.NORMAL)
-        self._run_btn.configure(state=tk.NORMAL)
+        if self._agent_thread is not None:
+            self._agent_thread.stop()
+        self._append_log("info", "\n[stopped]\n")
+        # UI re-enables in _on_done when thread finishes
 
-    def _on_done(self, run_id: int) -> None:
+    def _on_done(self, run_id: int, messages: list) -> None:
         if run_id != self._run_id:
             return
-        self._task_entry.configure(state=tk.NORMAL)
-        self._run_btn.configure(state=tk.NORMAL)
-        self._stop_btn.configure(state=tk.DISABLED)
-
-    # ------------------------------------------------------------------
-    # Agent (runs on background thread)
-    # ------------------------------------------------------------------
-
-    def _run_agent(self, task: str, run_id: int) -> None:
-        try:
-            load_dotenv()
-            client = create_client()
-            model = os.environ.get("OPENAI_MODEL", "")
-            enabled = {k for k, v in self._tool_vars.items() if v.get()}
-            dispatcher = create_dispatcher(enabled, instances=self._tool_instances)
-            tools = list(dispatcher.tool_schemas().values())
-            system_prompt = self._sys_text.get("1.0", tk.END).strip()
-            cb = _GuiCallbacks(self)
-            run_task(client, model, tools, dispatcher, task, cb, system_prompt=system_prompt)
-        except Exception as e:
-            self._push_log("error", f"\nFatal: {e}\n")
-        finally:
-            self.root.after(0, lambda: self._on_done(run_id))
+        self._messages = messages
+        self._task_entry.setEnabled(True)
+        self._run_btn.setEnabled(True)
+        self._stop_btn.setEnabled(False)
 
 
-class _GuiCallbacks:
-    def __init__(self, app: App) -> None:
-        self._app = app
-
-    def on_extra_content(self, data: str) -> None:
-        self._app._push_log("reasoning", f"\n[extra_content: {data}]")
-
-    def on_reasoning(self, token: str) -> None:
-        self._app._push_log("reasoning", token)
-
-    def on_content(self, token: str) -> None:
-        self._app._push_log("content", token)
-
-    def on_tool_call(self, name: str, kwargs_str: str) -> None:
-        self._app._push_log("tool_call", f"\n[{name}({kwargs_str})]")
-
-    def on_tool_result(self, output: str) -> None:
-        self._app._push_log("tool_result", f"  -> {output}")
-
-    def on_tool_error(self, error: str) -> None:
-        self._app._push_log("error", f"\n  ! {error}")
-
-    def on_screenshot(self, data_url: str) -> None:
-        self._app._push_screenshot(data_url)
-
-    def is_stopped(self) -> bool:
-        return self._app._stop_event.is_set()
-
+# ------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------
 
 def main() -> None:
     load_dotenv()
-    root = tk.Tk()
-    App(root)
-    root.mainloop()
+    app = QApplication([])
+    app.setStyle("Fusion")
+    window = MainWindow()
+    window.show()
+    app.exec()
 
 
 if __name__ == "__main__":
