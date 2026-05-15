@@ -7,7 +7,7 @@ NAME="LLM Agent"
 
 PYINSTALLER="uv run --with pyinstaller pyinstaller"
 MAIN="$ROOT/llm_client_window/window.py"
-ICON="$ROOT/assets/icon.icns"
+ICON="$ROOT/assets/icon.png"
 
 mkdir -p "$BIN"
 
