@@ -576,6 +576,11 @@ class MainWindow(QMainWindow):
         self._task_entry.clear()
         self._task_entry.setEnabled(False)
         self._run_btn.setText("Stop")
+        self._run_btn.setStyleSheet(
+            "QPushButton { background-color: #c0392b; color: #ffffff; border-color: #a93226; }"
+            "QPushButton:hover { background-color: #e74c3c; }"
+            "QPushButton:pressed { background-color: #a93226; }"
+        )
 
         self._append_log("info", f"> {task}\n")
         self._refresh_screenshot()
@@ -598,6 +603,7 @@ class MainWindow(QMainWindow):
             return
         self._task_entry.setEnabled(True)
         self._run_btn.setText("Run")
+        self._run_btn.setStyleSheet("")
 
 
 # ------------------------------------------------------------------
