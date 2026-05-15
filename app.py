@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -222,6 +224,42 @@ def create_dispatcher(
     return ToolList(*(t for name, t in all_tools.items() if name in names))
 
 
+_XML_TC_RE = re.compile(
+    r"<tool_call>\s*"
+    r"<function=([^>]+)>\s*"
+    r"(.*?)"
+    r"</function>\s*"
+    r"</tool_call>",
+    re.DOTALL,
+)
+_XML_PARAM_RE = re.compile(r"<parameter=([^>]+)>\s*(.*?)\s*</parameter>", re.DOTALL)
+
+
+def _parse_xml_tool_calls(content: str) -> tuple[list[ToolCall], str]:
+    """Extract <tool_call> XML blocks from content, return tool calls + cleaned text."""
+    tool_calls: list[ToolCall] = []
+    cleaned = content
+    for m in _XML_TC_RE.finditer(content):
+        name = m.group(1).strip()
+        params_block = m.group(2)
+        kwargs: dict[str, object] = {}
+        for pm in _XML_PARAM_RE.finditer(params_block):
+            key = pm.group(1).strip()
+            val = pm.group(2).strip()
+            try:
+                kwargs[key] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                kwargs[key] = val
+        tc = ToolCall(
+            id=f"xml_{uuid.uuid4().hex[:8]}",
+            name=name,
+            kwargs_str=json.dumps(kwargs),
+        )
+        tool_calls.append(tc)
+        cleaned = cleaned.replace(m.group(0), "")
+    return tool_calls, cleaned.strip()
+
+
 def stream_response(
     client: OpenAI,
     model: str,
@@ -274,6 +312,15 @@ def stream_response(
                         tc.kwargs_str += tc_delta.function.arguments
 
     tool_calls = sorted(tool_call_buf.values(), key=lambda t: t.id)
+
+    # Fallback: if no native tool calls, try parsing XML from content
+    if not tool_calls and content_buf:
+        xml_calls, content_buf = _parse_xml_tool_calls(content_buf)
+        if xml_calls:
+            for tc in xml_calls:
+                cb.on_tool_call(tc.name, tc.kwargs_str)
+            tool_calls = xml_calls
+
     return content_buf, tool_calls
 
 

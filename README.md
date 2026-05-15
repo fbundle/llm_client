@@ -1,6 +1,6 @@
 # LLM Desktop Agent
 
-An LLM-powered desktop automation agent for macOS. The model sees your screen via screenshots, controls your mouse and keyboard, and executes tasks autonomously.
+An LLM-powered desktop automation agent. The model sees your screen via screenshots, controls your mouse and keyboard, and executes tasks autonomously.
 
 ## Quick start
 
