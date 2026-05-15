@@ -5,29 +5,34 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BIN="$ROOT/bin"
 NAME="LLM Agent"
 
+PYINSTALLER="uv run --with pyinstaller pyinstaller"
+MAIN="$ROOT/llm_client_window/window.py"
+ICON="$ROOT/assets/icon.icns"
+DATA="$ROOT/vendor:vendor"
+
 mkdir -p "$BIN"
 
 case "$(uname -s)" in
     Darwin)
         echo "[build] targeting macOS .app bundle"
-        pyinstaller \
+        $PYINSTALLER \
             --onefile \
             --windowed \
             --name "$NAME" \
-            --icon "$ROOT/assets/icon.icns" \
-            --add-data "$ROOT/vendor:vendor" \
+            --icon $ICON \
+            --add-data $DATA \
             --distpath "$BIN" \
-            "$ROOT/llm_client_window/window.py"
+            $MAIN
         ;;
     Linux|*)
         echo "[build] targeting Linux binary"
-        pyinstaller \
+        $PYINSTALLER \
             --onefile \
             --windowed \
             --name "$NAME" \
-            --add-data "$ROOT/vendor:vendor" \
+            --add-data $DATA \
             --distpath "$BIN" \
-            "$ROOT/llm_client_window/window.py"
+            $MAIN
         ;;
 esac
 
