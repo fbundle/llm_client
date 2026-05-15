@@ -192,39 +192,20 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
 
         self._env = _read_env()
-        raw_tools: dict[str, object] = {
-            "mouse": MouseTool(),
-            "keyboard": KeyboardTool(),
-            "screen": ScreenTool(),
-        }
-        try:
-            tools_dir = Path(__file__).resolve().parent.parent / "llm_client_tools"
-            extra = discover_tools(tools_dir)
-            raw_tools.update(extra)
-        except Exception:
-            pass  # frozen app — only built-in tools available
-
         self._all_tools: dict[str, object] = {}
-        for key, tool in raw_tools.items():
-            schemas = tool.tool_schemas()
-            name_map = {}
-            for old_name in schemas:
-                if old_name.startswith(f"{key}_"):
-                    continue
-                name_map[old_name] = f"{key}_{old_name}"
-            self._all_tools[key] = NameMapping(tool, name_map) if name_map else tool
+        self._tool_checkboxes: dict[str, QCheckBox] = {}
 
         self._app = LLMClient(
             base_url=self._env.get("OPENAI_BASE_URL", ""),
             api_key=self._env.get("OPENAI_API_KEY", ""),
             model=self._env.get("OPENAI_MODEL", ""),
-            tool=ToolList(*self._all_tools.values()),
+            tool=None,
             temperature=float(self._env.get("OPENAI_TEMPERATURE", "0.7")),
             top_p=float(self._env.get("OPENAI_TOP_P", "1.0")),
             max_tokens=int(self._env.get("OPENAI_MAX_TOKENS", "4096")),
         )
+        self._rebuild_tools()
         self._app.append_system_message(SYSTEM_PROMPT)
-        self._tool_checkboxes: dict[str, QCheckBox] = {}
 
         self._agent_thread: AgentThread | None = None
         self._gen_thread: GenerateThread | None = None
@@ -506,7 +487,35 @@ class MainWindow(QMainWindow):
     def _refresh_screenshot(self) -> None:
         self._display_screenshot(encode_base64(get_screenshot(), format="JPEG"))
 
+    def _rebuild_tools(self) -> None:
+        raw_tools: dict[str, object] = {
+            "mouse": MouseTool(),
+            "keyboard": KeyboardTool(),
+            "screen": ScreenTool(),
+        }
+        try:
+            tools_dir = Path(__file__).resolve().parent.parent / "llm_client_tools"
+            extra = discover_tools(tools_dir)
+            raw_tools.update(extra)
+        except Exception:
+            pass
+
+        self._all_tools.clear()
+        for key, tool in raw_tools.items():
+            schemas = tool.tool_schemas()
+            name_map = {}
+            for old_name in schemas:
+                if old_name.startswith(f"{key}_"):
+                    continue
+                name_map[old_name] = f"{key}_{old_name}"
+            self._all_tools[key] = NameMapping(tool, name_map) if name_map else tool
+
     def _clear_history(self) -> None:
+        if self._agent_thread is not None and self._agent_thread.isRunning():
+            self._agent_thread.stop()
+            self._agent_thread.wait()
+        self._rebuild_tools()
+        self._app.set_tool(ToolList(*self._all_tools.values()))
         self._log.clear()
         self._app.clear_history()
         self._app.append_system_message(self._sys_edit.toPlainText().strip())

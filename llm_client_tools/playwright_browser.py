@@ -1,75 +1,68 @@
 from __future__ import annotations
 
 import base64
-from typing import Literal
+from contextlib import contextmanager
+from typing import Iterator, Literal
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Page, sync_playwright
 
 from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
 class PlaywrightBrowser:
-    """Browser automation via Playwright connected to Chrome over CDP."""
+    """Stateless browser automation — connects, acts, disconnects per call."""
 
     def __init__(self, cdp_url: str = "http://localhost:9222") -> None:
         self._cdp_url = cdp_url
-        self._playwright = None
-        self._browser = None
-        self._page = None
 
-    def _ensure_connected(self) -> None:
-        if self._page is not None and not self._page.is_closed():
-            return
-        self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.connect_over_cdp(self._cdp_url)
-        self._page = self._browser.contexts[0].pages[0] if self._browser.contexts[0].pages else self._browser.contexts[0].new_page()
+    @contextmanager
+    def _page(self) -> Iterator[Page]:
+        pw = sync_playwright().start()
+        try:
+            browser = pw.chromium.connect_over_cdp(self._cdp_url)
+            ctx = browser.contexts[0]
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            yield page
+            browser.close()
+        finally:
+            pw.stop()
 
     def navigate(self, url: str) -> str:
-        self._ensure_connected()
-        self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        return f"navigated to {url} — title: {self._page.title()}"
+        with self._page() as page:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            return f"navigated to {url} — title: {page.title()}"
 
     def click(self, selector: str) -> str:
-        self._ensure_connected()
-        self._page.click(selector, timeout=10000)
-        return f"clicked {selector}"
+        with self._page() as page:
+            page.click(selector, timeout=10000)
+            return f"clicked {selector}"
 
     def type_text(self, selector: str, text: str) -> str:
-        self._ensure_connected()
-        self._page.fill(selector, text, timeout=10000)
-        return f"typed into {selector}"
+        with self._page() as page:
+            page.fill(selector, text, timeout=10000)
+            return f"typed into {selector}"
 
     def screenshot(self) -> bytes:
-        self._ensure_connected()
-        return self._page.screenshot(type="jpeg", quality=80, full_page=False)
+        with self._page() as page:
+            return page.screenshot(type="jpeg", quality=80, full_page=False)
 
     def content(self) -> str:
-        self._ensure_connected()
-        return self._page.inner_text("body")
+        with self._page() as page:
+            return page.inner_text("body")
 
     def evaluate(self, js: str) -> str:
-        self._ensure_connected()
-        result = self._page.evaluate(js)
-        return str(result)
+        with self._page() as page:
+            return str(page.evaluate(js))
 
     def scroll(self, direction: Literal["up", "down"]) -> str:
-        self._ensure_connected()
-        self._page.evaluate(f"window.scrollBy(0, {'-window.innerHeight' if direction == 'up' else 'window.innerHeight'})")
-        return f"scrolled {direction}"
+        with self._page() as page:
+            page.evaluate(f"window.scrollBy(0, {'-window.innerHeight' if direction == 'up' else 'window.innerHeight'})")
+            return f"scrolled {direction}"
 
     def press_key(self, key: str) -> str:
-        self._ensure_connected()
-        self._page.keyboard.press(key)
-        return f"pressed {key}"
-
-    def close(self) -> None:
-        if self._browser is not None:
-            self._browser.close()
-        if self._playwright is not None:
-            self._playwright.stop()
-        self._page = None
-        self._browser = None
-        self._playwright = None
+        with self._page() as page:
+            page.keyboard.press(key)
+            return f"pressed {key}"
 
 
 class PlaywrightBrowserTool(Tool):
