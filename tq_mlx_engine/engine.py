@@ -20,12 +20,7 @@ class MlxEngine:
         tq_bits: int = 3,
         tq_fused: bool = False,
     ):
-        if tq_fused:
-            apply_patch()
-
         self.model_path = model_path
-        self._tq_bits = tq_bits
-        self._tq_fused = tq_fused
 
         logging.info(f"Loading model: {model_path}")
         self.model, self.tokenizer, self.config = mlx_lm.load(      # type: ignore
@@ -36,10 +31,8 @@ class MlxEngine:
         logging.info("Model loaded")
         self.cache_dict: PrefixDict[Cache] = PrefixDict()
 
-
-    def _make_cache(self) -> Cache:
-        return [
-            TurboQuantKVCache(bits=self._tq_bits, fused=self._tq_fused)
+        self._make_cache = lambda: [
+            TurboQuantKVCache(bits=tq_bits, fused=tq_fused)
             for _ in range(len(self.model.layers))                   # type: ignore
         ]
 
