@@ -19,6 +19,9 @@ mcp = [
 web = [
     "playwright>=1.55.0",
 ]
+server = [
+    "mlx-lm>=0.20.0",
+]
 gui = [
     "llm-gui-client[tools]",
     "pyside6>=6.10.0",
