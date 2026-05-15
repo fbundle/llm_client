@@ -1,3 +1,7 @@
 [submodule "vendor/Pikafish"]
 	path = vendor/Pikafish
 	url = https://github.com/official-pikafish/Pikafish/tree/8c66f92914ae1d29812a7e5c14bdb626b8acb6d7
+
+[submodule "vendor/Stockfish"]
+	path = vendor/Stockfish
+	url = https://github.com/official-stockfish/Stockfish/tree/cb3d4ee9b47d0c5aae855b12379378ea1439675c
