@@ -49,7 +49,7 @@ from llm_client import (
 )
 from llm_client_tools.keyboard import KeyboardTool
 from llm_client_tools.mouse import MouseTool
-from llm_client_tools.screen import ScreenTool, get_screenshot
+from llm_client_tools.screen import ScreenTool, encode_base64, get_screenshot
 
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
@@ -492,7 +492,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _refresh_screenshot(self) -> None:
-        self._display_screenshot(get_screenshot(format="JPEG", max_size=1024))
+        self._display_screenshot(encode_base64(get_screenshot(), format="JPEG"))
 
     def _clear_history(self) -> None:
         self._log.clear()

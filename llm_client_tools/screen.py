@@ -1,5 +1,4 @@
 import base64
-import os
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -28,54 +27,86 @@ def _draw_cursor(
     canvas.paste(cursor, (px, py), cursor)
 
 
-def get_screenshot(
-    format: Literal["PNG", "JPEG"] = "JPEG",
-    temp_file: str | None = None,
-    max_size: int = 1024,
-) -> str:
-    output_template = "data:image/{format_lowercase};base64,{data}"
-
+def get_screenshot(max_size: int = 1024) -> PIL_Image.Image:
+    """Capture a screenshot, resize if needed, and draw the cursor overlay."""
     im = pyautogui.screenshot()
     orig_width, orig_height = im.size
-    sw, sh = pyautogui.size()
-    scale_x = orig_width / sw
-    scale_y = orig_height / sh
 
     if max(orig_width, orig_height) > max_size:
         im.thumbnail(size=(max_size, max_size), resample=PIL_Image.Resampling.LANCZOS)
-    if format == "JPEG":
-        im = im.convert("RGB")
 
     new_width, new_height = im.size
-    px = int(pyautogui.position()[0] * scale_x * (new_width / orig_width))
-    py = int(pyautogui.position()[1] * scale_y * (new_height / orig_height))
+    scale_x = orig_width / pyautogui.size()[0]
+    scale_y = orig_height / pyautogui.size()[1]
+
+    mx, my = pyautogui.position()
+    px = int(mx * scale_x * (new_width / orig_width))
+    py = int(my * scale_y * (new_height / orig_height))
     _draw_cursor(im, px, py, new_width, new_height)
 
+    return im
+
+
+def crop_screenshot(
+    im: PIL_Image.Image,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+) -> PIL_Image.Image:
+    """Crop *im* to the fractional region defined by (x1,y1)-(x2,y2) in [0,1] range."""
+    w, h = pyautogui.size()
+    im_w, im_h = im.size
+    scale_x = im_w / w
+    scale_y = im_h / h
+
+    x1_px = max(0, int(x1 * w * scale_x))
+    y1_px = max(0, int(y1 * h * scale_y))
+    x2_px = min(im_w, int(x2 * w * scale_x))
+    y2_px = min(im_h, int(y2 * h * scale_y))
+
+    return im.crop((x1_px, y1_px, x2_px, y2_px))
+
+
+def encode_base64(im: PIL_Image.Image, format: Literal["PNG", "JPEG"] = "JPEG") -> str:
+    """Encode *im* to a base64 data URL string."""
+    if format == "JPEG":
+        im = im.convert("RGB")
     buffer_io = BytesIO()
     im.save(buffer_io, format=format, quality=80)
     buffer = buffer_io.getvalue()
-
-    if temp_file is not None:
-        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
-        with open(temp_file, "wb") as f:
-            f.write(buffer)
-
     buffer_b64 = base64.b64encode(buffer)
-    return output_template.format(
-        format_lowercase=format.lower(),
-        data=buffer_b64.decode("utf-8"),
-    )
+    return f"data:image/{format.lower()};base64,{buffer_b64.decode('utf-8')}"
 
 
 class ScreenTool(Tool):
-    def take_screenshot(self) -> ToolOutput:
-        image = get_screenshot(format="JPEG", temp_file="tmp/screenshot.jpg", max_size=1024)
+    def take_screenshot(
+        self,
+        x1: float | None = None,
+        y1: float | None = None,
+        x2: float | None = None,
+        y2: float | None = None,
+    ) -> ToolOutput:
+        im = get_screenshot()
+
+        if x1 is not None and y1 is not None and x2 is not None and y2 is not None:
+            im = crop_screenshot(im, x1, y1, x2, y2)
+
+        image = encode_base64(im)
         return ToolOutput(state_change=False, output="screenshot taken", error="", output_image=image)
 
     def dispatch(self, name: str, kwargs: dict[str, object]) -> ToolOutput:
-        if name == "take_screenshot":
-            return self.take_screenshot()
-        return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
+        if name != "take_screenshot":
+            return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
+        try:
+            return self.take_screenshot(
+                x1=kwargs.get("x1"),
+                y1=kwargs.get("y1"),
+                x2=kwargs.get("x2"),
+                y2=kwargs.get("y2"),
+            )
+        except Exception as e:
+            return ToolOutput(state_change=False, output="", error=str(e))
 
     def tool_schemas(self) -> dict[str, ChatCompletionFunctionToolParam]:
         return {
@@ -83,8 +114,28 @@ class ScreenTool(Tool):
                 "type": "function",
                 "function": {
                     "name": "take_screenshot",
-                    "description": "Capture a fresh screenshot of the screen. Call this first to see what's on screen.",
-                    "parameters": {"type": "object", "properties": {}},
+                    "description": "Capture a fresh screenshot of the screen. Call this first to see what's on screen. Optionally crop to a region with x1,y1,x2,y2 in fractional coordinates (0.0-1.0).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "x1": {
+                                "type": "number",
+                                "description": "Top-left X of crop region (0.0 = leftmost, 1.0 = rightmost).",
+                            },
+                            "y1": {
+                                "type": "number",
+                                "description": "Top-left Y of crop region (0.0 = topmost, 1.0 = bottommost).",
+                            },
+                            "x2": {
+                                "type": "number",
+                                "description": "Bottom-right X of crop region (0.0 = leftmost, 1.0 = rightmost).",
+                            },
+                            "y2": {
+                                "type": "number",
+                                "description": "Bottom-right Y of crop region (0.0 = topmost, 1.0 = bottommost).",
+                            },
+                        },
+                    },
                 },
             },
         }
