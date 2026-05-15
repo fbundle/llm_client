@@ -19,7 +19,7 @@ from openai.types.chat import (
 )
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
 
-from llm_client.tool import EMPTY_TOOL, Tool, ToolOutput
+from llm_client.tool import Tool, ToolOutput
 
 
 # ------------------------------------------------------------------
@@ -191,7 +191,10 @@ def _execute_tools(
         except json.JSONDecodeError as e:
             out = ToolOutput(state_change=False, output="", error=f"invalid JSON: {e}")
         else:
-            out = tool.dispatch(tc.name, kwargs)
+            try:
+                out = tool.dispatch(tc.name, kwargs)
+            except Exception as e:
+                out = ToolOutput(state_change=False, output="", error=f"dispatch error: {e}")
         cb.on_tool_result(out.output)
         results.append(ChatCompletionToolMessageParam(
             role="tool",
@@ -227,7 +230,7 @@ class LLMClient:
         base_url: str,
         api_key: str,
         model: str,
-        tool: Tool = EMPTY_TOOL,
+        tool: Tool | None = None,
         temperature: float = 0.7,
         top_p: float = 1.0,
         max_tokens: int = 4096,
@@ -269,7 +272,7 @@ class LLMClient:
         if max_tokens is not None:
             self.max_tokens = max_tokens
 
-    def set_tool(self, tool: Tool) -> None:
+    def set_tool(self, tool: Tool | None) -> None:
         self.tool = tool
 
     # -- actions ---------------------------------------------------------
@@ -278,12 +281,13 @@ class LLMClient:
         self.messages.append({"role": "system", "content": system_prompt})
 
     def append_user_message_and_generate(self, user_message: str, cb: Callbacks) -> None:
+        msg_idx = len(self.messages)
         self.messages.append({
             "role": "user",
             "content": [{"type": "text", "text": user_message}],
         })
 
-        tools = list(self.tool.tool_schemas().values())
+        tools = list(self.tool.tool_schemas().values()) if self.tool is not None else []
 
         while not cb.is_stopped():
             try:
@@ -292,9 +296,13 @@ class LLMClient:
                 )
             except Exception as e:
                 cb.on_tool_error(f"API error: {e}")
+                self.messages.pop(msg_idx)  # roll back user message on error
                 break
 
-            if not tool_calls:
+            if not tool_calls or self.tool is None:
+                self.messages.append(ChatCompletionAssistantMessageParam(
+                    role="assistant", content=content or None,
+                ))
                 break
 
             tool_results = _execute_tools(tool_calls, self.tool, cb)

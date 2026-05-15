@@ -64,9 +64,6 @@ class NameMapping(Tool):
         return schemas
 
 
-EMPTY_TOOL: Tool = ToolList()
-
-
 def discover_tools(tools_dir: Path) -> dict[str, Tool]:
     """Discover and instantiate all Tool classes in *tools_dir*.
 

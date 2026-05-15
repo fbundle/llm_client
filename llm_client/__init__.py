@@ -7,4 +7,4 @@ from llm_client.prompt import (
     PROMPT_TIER4_MINIMAL,
     SYSTEM_PROMPT,
 )
-from llm_client.tool import EMPTY_TOOL, NameMapping, Tool, ToolList, ToolOutput, discover_tools
+from llm_client.tool import NameMapping, Tool, ToolList, ToolOutput, discover_tools
