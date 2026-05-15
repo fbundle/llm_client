@@ -20,10 +20,13 @@ web = [
     "playwright>=1.55.0",
 ]
 server = [
+    "fastapi>=0.115.0",
     "mlx-lm>=0.20.0",
+    "moka-py>=0.3.0",
+    "uvicorn[standard]>=0.30.0",
 ]
 gui = [
-    "llm-gui-client[tools]",
+    "llm-gui-client[tools,web,mcp]",
     "pyside6>=6.10.0",
     "python-dotenv>=1.2.2",
 ]
