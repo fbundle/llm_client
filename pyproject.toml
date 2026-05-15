@@ -13,6 +13,9 @@ tools = [
     "pyautogui>=0.9.54",
     "pyscreeze>=1.0.1",
 ]
+mcp = [
+    "mcp>=1.0.0",
+]
 gui = [
     "llm-gui-client[tools]",
     "pyside6>=6.10.0",
