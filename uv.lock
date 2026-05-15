@@ -170,29 +170,43 @@ wheels = [
 ]
 
 [[package]]
-name = "llm-client"
-version = "0.1.0"
-source = { virtual = "." }
+name = "llm-gui-client"
+source = { editable = "." }
 dependencies = [
-    { name = "mini-racer" },
     { name = "openai" },
+]
+
+[package.optional-dependencies]
+gui = [
+    { name = "mini-racer" },
     { name = "pillow" },
     { name = "pyautogui" },
     { name = "pyscreeze" },
     { name = "pyside6" },
     { name = "python-dotenv" },
 ]
+tools = [
+    { name = "mini-racer" },
+    { name = "pillow" },
+    { name = "pyautogui" },
+    { name = "pyscreeze" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "mini-racer", specifier = ">=0.14.1" },
+    { name = "mini-racer", marker = "extra == 'gui'", specifier = ">=0.14.1" },
+    { name = "mini-racer", marker = "extra == 'tools'", specifier = ">=0.14.1" },
     { name = "openai", specifier = ">=2.36.0" },
-    { name = "pillow", specifier = ">=12.2.0" },
-    { name = "pyautogui", specifier = ">=0.9.54" },
-    { name = "pyscreeze", specifier = ">=1.0.1" },
-    { name = "pyside6", specifier = ">=6.10.0" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "pillow", marker = "extra == 'gui'", specifier = ">=12.2.0" },
+    { name = "pillow", marker = "extra == 'tools'", specifier = ">=12.2.0" },
+    { name = "pyautogui", marker = "extra == 'gui'", specifier = ">=0.9.54" },
+    { name = "pyautogui", marker = "extra == 'tools'", specifier = ">=0.9.54" },
+    { name = "pyscreeze", marker = "extra == 'gui'", specifier = ">=1.0.1" },
+    { name = "pyscreeze", marker = "extra == 'tools'", specifier = ">=1.0.1" },
+    { name = "pyside6", marker = "extra == 'gui'", specifier = ">=6.10.0" },
+    { name = "python-dotenv", marker = "extra == 'gui'", specifier = ">=1.2.2" },
 ]
+provides-extras = ["gui", "tools"]
 
 [[package]]
 name = "mini-racer"

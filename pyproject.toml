@@ -19,6 +19,9 @@ gui = [
     "python-dotenv>=1.2.2",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["llm_client", "llm_client_tools", "llm_client_window"]
+
 [tool.hatch.version]
 path = "llm_client/__init__.py"
 
