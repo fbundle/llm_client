@@ -1,0 +1,369 @@
+"""TurboQuantKVCache: PolarQuant KV cache compression with fused Metal kernels.
+
+Implements TurboQuant (arXiv 2504.19874, ICLR 2026) for MLX KV cache compression.
+4.6x compression via randomized Hadamard rotation + Lloyd-Max quantization.
+Bit-packed uint32 storage with fused Metal quantize/dequantize kernels.
+"""
+
+import mlx.core as mx
+from turboquant_mlx.rotation import random_diagonal_sign
+from turboquant_mlx.packing import packed_dim
+from turboquant_mlx.metal import fused_quantize, dequant_fp16
+from turboquant_mlx.kernels import packed_dequantize
+
+
+def _compute_gaussian_codebook(bits):
+    codebooks = {
+        1: [-0.7979, 0.7979],
+        2: [-1.5104, -0.4528, 0.4528, 1.5104],
+        3: [-2.1520, -1.3440, -0.7560, -0.2451,
+             0.2451, 0.7560, 1.3440, 2.1520],
+        4: [-2.7326, -2.0690, -1.6180, -1.2562,
+            -0.9423, -0.6568, -0.3881, -0.1284,
+             0.1284, 0.3881, 0.6568, 0.9423,
+             1.2562, 1.6180, 2.0690, 2.7326],
+    }
+    return mx.array(codebooks[bits], dtype=mx.float32)
+
+
+def _compute_boundaries(centroids):
+    return (centroids[:-1] + centroids[1:]) / 2.0
+
+
+class _Quantizer:
+    def __init__(self, dim, bits, seed):
+        self.dim = dim
+        self.bits = bits
+        self.signs = random_diagonal_sign(dim, seed=seed)
+        self.centroids = _compute_gaussian_codebook(bits)
+        self.boundaries = _compute_boundaries(self.centroids)
+
+
+class TurboQuantKVCache:
+    """TurboQuant KV cache — drop-in replacement for KVCache.
+
+    Compresses KV vectors using PolarQuant (Hadamard rotation + Lloyd-Max
+    codebook quantization). Stores bit-packed indices in uint32 + float32 norms.
+
+    Uses fused Metal kernels for quantize and dequantize operations.
+    Maintains an incremental decode buffer for O(1) per-step dequantization.
+    """
+
+    step = 256
+
+    def __init__(
+        self,
+        bits: int = 3,
+        seed: int = 42,
+        fused: bool = False,
+        sparse_v_threshold: float | None = None,
+        v_only: bool = False,
+    ):
+        self.quant_bits = bits
+        self.seed = seed
+        self.offset = 0
+        self.fused = fused
+        self.sparse_v_threshold = sparse_v_threshold
+        # When True, only V is quantized/stored in packed form. K storage
+        # and dequant buffer are skipped entirely to save memory. Used by
+        # VOnlyTurboQuantCache (which handles K separately in fp16).
+        self.v_only = v_only
+
+        self.k_packed = None
+        self.k_norms = None
+        self.v_packed = None
+        self.v_norms = None
+
+        self._k_deq_buf = None
+        self._v_deq_buf = None
+        self._deq_offset = 0
+        self._deq_alloc = 0
+
+        self._k_q = None
+        self._v_q = None
+        self._k_dim = None
+        self._v_dim = None
+        self._k_pdim = None
+        self._v_pdim = None
+        self._dtype = None
+
+    def _ensure_quantizer(self, k_dim, v_dim):
+        if not self.v_only and self._k_q is None:
+            self._k_q = _Quantizer(k_dim, self.quant_bits, self.seed)
+            self._k_dim = k_dim
+            self._k_pdim = packed_dim(k_dim, self.quant_bits)
+        if self._v_q is None:
+            self._v_q = _Quantizer(v_dim, self.quant_bits, self.seed + 1)
+            self._v_dim = v_dim
+            self._v_pdim = packed_dim(v_dim, self.quant_bits)
+
+    def _ensure_storage(self, B, H, num_new):
+        prev = self.offset
+        needed = prev + num_new
+        if self.v_packed is None or needed > self.v_packed.shape[2]:
+            n = ((needed + self.step - 1) // self.step) * self.step
+            if not self.v_only:
+                if self.k_packed is not None:
+                    new_kp = mx.zeros((B, H, n, self._k_pdim), dtype=mx.uint32)
+                    new_kn = mx.zeros((B, H, n), dtype=mx.float32)
+                    new_kp[..., :prev, :] = self.k_packed[..., :prev, :]
+                    new_kn[..., :prev] = self.k_norms[..., :prev]
+                    self.k_packed, self.k_norms = new_kp, new_kn
+                else:
+                    self.k_packed = mx.zeros((B, H, n, self._k_pdim), dtype=mx.uint32)
+                    self.k_norms = mx.zeros((B, H, n), dtype=mx.float32)
+            if self.v_packed is not None:
+                new_vp = mx.zeros((B, H, n, self._v_pdim), dtype=mx.uint32)
+                new_vn = mx.zeros((B, H, n), dtype=mx.float32)
+                new_vp[..., :prev, :] = self.v_packed[..., :prev, :]
+                new_vn[..., :prev] = self.v_norms[..., :prev]
+                self.v_packed, self.v_norms = new_vp, new_vn
+            else:
+                self.v_packed = mx.zeros((B, H, n, self._v_pdim), dtype=mx.uint32)
+                self.v_norms = mx.zeros((B, H, n), dtype=mx.float32)
+
+    def _full_dequant(self, packed, norms, q, dim, B, H, total, dtype):
+        flat_p = packed[..., :total, :].reshape(-1, packed.shape[-1])
+        flat_n = norms[..., :total].reshape(-1)
+        out = packed_dequantize(flat_p, flat_n, q.centroids, q.signs, dim, self.quant_bits)
+        return out.reshape(B, H, total, dim).astype(dtype)
+
+    def update_and_fetch(self, keys, values):
+        B, H, S, k_dim = keys.shape
+        v_dim = values.shape[3]
+        self._dtype = keys.dtype
+        self._ensure_quantizer(k_dim, v_dim)
+        self._ensure_storage(B, H, S)
+        prev = self.offset
+
+        # Quantize V (always)
+        v_pk, v_nrm = fused_quantize(values.reshape(-1, v_dim), self._v_q.signs, self._v_q.boundaries, v_dim, self.quant_bits)
+        v_pk = v_pk.reshape(B, H, S, self._v_pdim)
+        self.v_packed[..., prev:prev+S, :] = v_pk
+        self.v_norms[..., prev:prev+S] = v_nrm.reshape(B, H, S)
+
+        # Quantize K (skip in v_only mode — saves one fused_quantize + storage)
+        if not self.v_only:
+            k_pk, k_nrm = fused_quantize(keys.reshape(-1, k_dim), self._k_q.signs, self._k_q.boundaries, k_dim, self.quant_bits)
+            k_pk = k_pk.reshape(B, H, S, self._k_pdim)
+            self.k_packed[..., prev:prev+S, :] = k_pk
+            self.k_norms[..., prev:prev+S] = k_nrm.reshape(B, H, S)
+
+        self.offset += S
+        total = self.offset
+
+        # Lazy-V fast path: when the fused attention path is active, the
+        # downstream SDPA is patched to read K/V directly from the packed
+        # storage (prerot_fused_qk_scores + sparse_v_matvec), so the K/V
+        # dequant buffer is dead weight — we'd pay the dequant cost and
+        # the write bandwidth for nothing. Skip both and return empty
+        # placeholders of the correct shape; MLX keeps them lazy, and the
+        # patched SDPA never materializes them.
+        if self.fused:
+            placeholder_k = mx.zeros((B, H, total, k_dim), dtype=keys.dtype)
+            placeholder_v = mx.zeros((B, H, total, v_dim), dtype=values.dtype)
+            return placeholder_k, placeholder_v
+
+        # v_only mode: K is handled externally (e.g., VOnlyTurboQuantCache
+        # stores K in a plain KVCache). Only dequant V and return it. K
+        # return is a placeholder — caller must not use it.
+        if self.v_only:
+            if S <= 4 and self._v_deq_buf is not None and self._deq_offset == prev:
+                if total > self._deq_alloc:
+                    na = ((total + self.step - 1) // self.step) * self.step
+                    self._v_deq_buf = mx.concatenate([self._v_deq_buf[..., :self._deq_offset, :],
+                        mx.zeros((B, H, na - self._deq_alloc, v_dim), dtype=values.dtype)], axis=2)
+                    self._deq_alloc = na
+                nv = dequant_fp16(v_pk.reshape(-1, self._v_pdim), v_nrm, self._v_q.centroids, self._v_q.signs, v_dim, self.quant_bits).reshape(B, H, S, v_dim).astype(values.dtype)
+                self._v_deq_buf[..., prev:total, :] = nv
+                self._deq_offset = total
+                return mx.zeros((B, H, total, k_dim), dtype=keys.dtype), self._v_deq_buf[..., :total, :]
+            # Full V dequant (prefill)
+            all_v = self._full_dequant(self.v_packed, self.v_norms, self._v_q, v_dim, B, H, total, values.dtype)
+            alloc = ((total + self.step - 1) // self.step) * self.step
+            self._v_deq_buf = mx.zeros((B, H, alloc, v_dim), dtype=values.dtype)
+            self._v_deq_buf[..., :total, :] = all_v
+            self._deq_offset = total
+            self._deq_alloc = alloc
+            return mx.zeros((B, H, total, k_dim), dtype=keys.dtype), all_v
+
+        # Standard K+V path
+        # Incremental decode
+        if S <= 4 and self._v_deq_buf is not None and self._deq_offset == prev:
+            if total > self._deq_alloc:
+                na = ((total + self.step - 1) // self.step) * self.step
+                self._k_deq_buf = mx.concatenate([self._k_deq_buf[..., :self._deq_offset, :],
+                    mx.zeros((B, H, na - self._deq_alloc, k_dim), dtype=keys.dtype)], axis=2)
+                self._v_deq_buf = mx.concatenate([self._v_deq_buf[..., :self._deq_offset, :],
+                    mx.zeros((B, H, na - self._deq_alloc, v_dim), dtype=values.dtype)], axis=2)
+                self._deq_alloc = na
+
+            nk = dequant_fp16(k_pk.reshape(-1, self._k_pdim), k_nrm, self._k_q.centroids, self._k_q.signs, k_dim, self.quant_bits).reshape(B, H, S, k_dim).astype(keys.dtype)
+            nv = dequant_fp16(v_pk.reshape(-1, self._v_pdim), v_nrm, self._v_q.centroids, self._v_q.signs, v_dim, self.quant_bits).reshape(B, H, S, v_dim).astype(values.dtype)
+            self._k_deq_buf[..., prev:total, :] = nk
+            self._v_deq_buf[..., prev:total, :] = nv
+            self._deq_offset = total
+            return self._k_deq_buf[..., :total, :], self._v_deq_buf[..., :total, :]
+
+        # Full dequant (prefill)
+        all_k = self._full_dequant(self.k_packed, self.k_norms, self._k_q, k_dim, B, H, total, keys.dtype)
+        all_v = self._full_dequant(self.v_packed, self.v_norms, self._v_q, v_dim, B, H, total, values.dtype)
+        alloc = ((total + self.step - 1) // self.step) * self.step
+        self._k_deq_buf = mx.zeros((B, H, alloc, k_dim), dtype=keys.dtype)
+        self._v_deq_buf = mx.zeros((B, H, alloc, v_dim), dtype=values.dtype)
+        self._k_deq_buf[..., :total, :] = all_k
+        self._v_deq_buf[..., :total, :] = all_v
+        self._deq_offset = total
+        self._deq_alloc = alloc
+        return all_k, all_v
+
+    def empty(self):
+        return self.v_packed is None if self.v_only else self.k_packed is None
+
+    @property
+    def nbytes(self):
+        total = 0
+        if self.k_packed is not None:
+            total += (self.k_packed[..., :self.offset, :].nbytes +
+                      self.k_norms[..., :self.offset].nbytes)
+        if self.v_packed is not None:
+            total += (self.v_packed[..., :self.offset, :].nbytes +
+                      self.v_norms[..., :self.offset].nbytes)
+        return total
+
+    @property
+    def compression_ratio(self) -> float:
+        """FP16 bytes of the uncompressed K+V divided by packed + norm bytes."""
+        total = self.nbytes
+        if total == 0:
+            return 1.0
+        ref = self.v_packed if self.v_only else self.k_packed
+        if ref is None:
+            return 1.0
+        B, H = ref.shape[0], ref.shape[1]
+        k_dim = self._k_dim or 0
+        v_dim = self._v_dim or 0
+        fp16_bytes = B * H * self.offset * (k_dim + v_dim) * 2
+        return fp16_bytes / total
+
+    @property
+    def state(self):
+        if self.v_packed is None and self.k_packed is None:
+            return []
+        parts = []
+        if self.k_packed is not None:
+            parts += [self.k_packed[..., :self.offset, :], self.k_norms[..., :self.offset]]
+        if self.v_packed is not None:
+            parts += [self.v_packed[..., :self.offset, :], self.v_norms[..., :self.offset]]
+        return parts
+
+    @state.setter
+    def state(self, v):
+        if not v:
+            return
+        if len(v) == 4:
+            self.k_packed, self.k_norms, self.v_packed, self.v_norms = v
+            self.offset = self.k_packed.shape[2]
+        elif len(v) == 2:
+            # v_only mode: only V packed + V norms
+            self.v_packed, self.v_norms = v
+            self.offset = self.v_packed.shape[2]
+        else:
+            raise ValueError(
+                f"Expected 2 (v_only) or 4 arrays in state, got {len(v)}"
+            )
+
+    _DTYPE_MAP = {
+        "float16": mx.float16,
+        "bfloat16": mx.bfloat16,
+        "float32": mx.float32,
+    }
+    _DTYPE_NAME = {v: k for k, v in _DTYPE_MAP.items()}
+
+    @property
+    def meta_state(self):
+        dtype_str = self._DTYPE_NAME.get(self._dtype, "float16")
+        return f"{self.offset},{self.quant_bits},{self.seed},{self._k_dim or 0},{self._v_dim or 0},{dtype_str}"
+
+    @meta_state.setter
+    def meta_state(self, v):
+        parts = v.split(",")
+        self.offset, self.quant_bits, self.seed = int(parts[0]), int(parts[1]), int(parts[2])
+        self._k_dim = int(parts[3]) or None
+        self._v_dim = int(parts[4]) or None
+        if len(parts) > 5:
+            self._dtype = self._DTYPE_MAP.get(parts[5], mx.float16)
+        else:
+            self._dtype = mx.float16
+
+    def is_trimmable(self):
+        return True
+
+    def trim(self, n):
+        n = min(self.offset, n)
+        self.offset -= n
+        self._k_deq_buf = None
+        self._v_deq_buf = None
+        self._deq_offset = 0
+        self._deq_alloc = 0
+        return n
+
+    def size(self):
+        return self.offset
+
+    def make_mask(self, N, return_array: bool = False, window_size=None):
+        """Build the attention mask for a forward of length ``N`` tokens.
+
+        Matches the contract the mlx_lm model code expects: called from
+        create_attention_mask(h, cache) for the first cache layer, must
+        return None (implicit causal) for single-token decode, "causal"
+        string for multi-token without explicit array, or an explicit
+        offset-aware causal array when the caller asks for one.
+
+        Mirrors mlx_lm.models.base.create_attention_mask's logic without
+        invoking it (upstream mlx_lm.cache.KVCache.make_mask forwards
+        offset=self.offset, but the current create_attention_mask
+        signature no longer accepts that kwarg in this fork).
+        """
+        from mlx_lm.models.base import create_causal_mask
+
+        if N == 1:
+            return None
+        if return_array or (window_size is not None and N > window_size):
+            return create_causal_mask(N, offset=self.offset, window_size=window_size)
+        return "causal"
+
+    @classmethod
+    def from_state(cls, state, meta_state):
+        obj = cls.__new__(cls)
+        obj.k_packed = None
+        obj.k_norms = None
+        obj.v_packed = None
+        obj.v_norms = None
+        obj._k_deq_buf = None
+        obj._v_deq_buf = None
+        obj._deq_offset = 0
+        obj._deq_alloc = 0
+        obj._k_q = None
+        obj._v_q = None
+        obj._k_dim = None
+        obj._v_dim = None
+        obj._k_pdim = None
+        obj._v_pdim = None
+        obj._dtype = None
+        obj.fused = False
+        obj.sparse_v_threshold = None
+        obj.v_only = False
+        # Restore packed data and metadata from saved state.
+        obj.meta_state = meta_state  # sets offset, quant_bits, seed, dims, dtype
+        obj.state = state            # sets k_packed, k_norms, v_packed, v_norms
+        # Derive packed dims from restored data so _ensure_storage works on extend.
+        if obj.k_packed is not None:
+            obj._k_pdim = obj.k_packed.shape[-1]
+        if obj.v_packed is not None:
+            obj._v_pdim = obj.v_packed.shape[-1]
+        # Lazily initialize quantizers on first update_and_fetch (needs dims
+        # from meta_state which are already set above).
+        if obj._k_dim is not None and obj._v_dim is not None:
+            obj._ensure_quantizer(obj._k_dim, obj._v_dim)
+        return obj

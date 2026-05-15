@@ -10,12 +10,14 @@ dependencies = [
 tools = [
     "mini-racer>=0.14.1",
     "pillow>=12.2.0",
-    "playwright>=1.55.0",
     "pyautogui>=0.9.54",
     "pyscreeze>=1.0.1",
 ]
 mcp = [
     "mcp>=1.0.0",
+]
+web = [
+    "playwright>=1.55.0",
 ]
 gui = [
     "llm-gui-client[tools]",
