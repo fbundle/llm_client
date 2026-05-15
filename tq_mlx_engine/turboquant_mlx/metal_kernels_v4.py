@@ -24,7 +24,7 @@ Three public functions:
 import mlx.core as mx
 import math
 
-from turboquant_mlx.kernels import packed_dequantize as prerot_packed_dequantize
+from .kernels import packed_dequantize as prerot_packed_dequantize
 
 __all__ = [
     "prerotate_query",

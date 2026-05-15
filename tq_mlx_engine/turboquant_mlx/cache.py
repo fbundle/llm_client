@@ -6,10 +6,10 @@ Bit-packed uint32 storage with fused Metal quantize/dequantize kernels.
 """
 
 import mlx.core as mx
-from turboquant_mlx.rotation import random_diagonal_sign
-from turboquant_mlx.packing import packed_dim
-from turboquant_mlx.metal import fused_quantize, dequant_fp16
-from turboquant_mlx.kernels import packed_dequantize
+from .rotation import random_diagonal_sign
+from .packing import packed_dim
+from .metal import fused_quantize, dequant_fp16
+from .kernels import packed_dequantize
 
 
 def _compute_gaussian_codebook(bits):

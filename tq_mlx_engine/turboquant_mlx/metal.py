@@ -172,7 +172,7 @@ def fused_quantize(
             source=FUSED_QUANTIZE_KERNEL,
         )
 
-    from turboquant_mlx.packing import packed_dim as calc_packed_dim, VALS_PER_WORD
+    from .packing import packed_dim as calc_packed_dim, VALS_PER_WORD
     n_vecs = vectors.shape[0]
     vpw = VALS_PER_WORD[bits]
     p_dim = calc_packed_dim(dim, bits)
@@ -214,7 +214,7 @@ def dequant_fp16(
             source=DEQUANT_FP16_KERNEL,
         )
 
-    from turboquant_mlx.packing import packed_dim as calc_packed_dim, VALS_PER_WORD
+    from .packing import packed_dim as calc_packed_dim, VALS_PER_WORD
     seq_len = norms.shape[0]
     vpw = VALS_PER_WORD[bits]
     p_dim = calc_packed_dim(dim, bits)

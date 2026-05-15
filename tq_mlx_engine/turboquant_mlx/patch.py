@@ -13,13 +13,13 @@ _patched = False
 
 def _patched_sdpa(queries, keys, values, cache, scale, mask, sinks=None):
     """Patched SDPA: fused TQ path or standard."""
-    from turboquant_mlx.cache import TurboQuantKVCache
+    from .cache import TurboQuantKVCache
 
     # Fused TQ path
     is_decode = queries.shape[2] == 1
     is_tq = isinstance(cache, TurboQuantKVCache) and cache.offset > 0 and cache.fused
     if is_decode and is_tq:
-        from turboquant_mlx.fused_attention import turboquant_attention
+        from .fused_attention import turboquant_attention
         return turboquant_attention(
             queries, cache, scale, mask,
             sparse_v_threshold=cache.sparse_v_threshold,

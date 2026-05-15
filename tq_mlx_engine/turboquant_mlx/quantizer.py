@@ -8,7 +8,7 @@ Implements Algorithm 1 from the TurboQuant paper:
 
 import mlx.core as mx
 import math
-from turboquant_mlx.rotation import (
+from .rotation import (
     random_diagonal_sign,
     randomized_hadamard_transform,
     inverse_randomized_hadamard,

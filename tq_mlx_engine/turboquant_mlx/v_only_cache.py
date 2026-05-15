@@ -8,7 +8,7 @@ Keeping K in fp16 preserves generation quality while still compressing V
 by ~5x. On a 32K-context 7B model this saves ~40% of total KV memory.
 
 Usage:
-    from turboquant_mlx.v_only_cache import VOnlyTurboQuantCache
+    from .v_only_cache import VOnlyTurboQuantCache
     cache = [VOnlyTurboQuantCache(bits=3) for _ in range(n_layers)]
     # pass to mlx-lm generate() as prompt_cache
 """
@@ -18,7 +18,7 @@ from __future__ import annotations
 import mlx.core as mx
 from mlx_lm.models.cache import KVCache
 
-from turboquant_mlx.cache import TurboQuantKVCache
+from .cache import TurboQuantKVCache
 
 
 class VOnlyTurboQuantCache:
@@ -57,7 +57,7 @@ class VOnlyTurboQuantCache:
             self._v_tq._ensure_quantizer(keys.shape[-1], v_dim)
             self._v_tq._ensure_storage(B, H, S)
             prev = self._v_tq.offset
-            from turboquant_mlx.metal import fused_quantize
+            from .metal import fused_quantize
             v_pk, v_nrm = fused_quantize(
                 values.reshape(-1, v_dim),
                 self._v_tq._v_q.signs,

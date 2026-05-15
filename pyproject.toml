@@ -31,8 +31,12 @@ gui = [
     "python-dotenv>=1.2.2",
 ]
 
+all = [
+    "llm-gui-client[tools,web,mcp,server]",
+]
+
 [tool.hatch.build.targets.wheel]
-packages = ["llm_client", "llm_client_tools", "llm_client_window"]
+packages = ["llm_client", "llm_client_app", "llm_client_tools", "tq_mlx_engine", "tq_mlx_engine/turboquant_mlx"]
 
 [tool.hatch.version]
 path = "llm_client/__init__.py"

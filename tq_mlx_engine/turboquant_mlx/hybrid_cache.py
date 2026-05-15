@@ -19,7 +19,7 @@ from __future__ import annotations
 import mlx.core as mx
 from mlx_lm.models.cache import QuantizedKVCache
 
-from turboquant_mlx.cache import TurboQuantKVCache
+from .cache import TurboQuantKVCache
 
 
 class HybridQuantCache:

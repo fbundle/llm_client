@@ -7,7 +7,7 @@ This matches the approach in turboquant_plus "layer-adaptive mode 2".
 """
 
 from mlx_lm.models.cache import KVCache
-from turboquant_mlx.cache import TurboQuantKVCache
+from .cache import TurboQuantKVCache
 
 
 def make_adaptive_cache(

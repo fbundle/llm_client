@@ -15,7 +15,7 @@ from __future__ import annotations
 import mlx.core as mx
 from mlx.utils import tree_map
 
-from turboquant_mlx.sparse_v import sparse_v_matvec
+from .sparse_v import sparse_v_matvec
 
 
 def hybrid_quantized_attention(

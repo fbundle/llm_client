@@ -10,11 +10,11 @@ Same trick as llama.cpp "graph-side WHT rotation" (0.52x → 0.78x speedup).
 """
 
 import mlx.core as mx
-from turboquant_mlx.metal_kernels_v4 import (
+from .metal_kernels_v4 import (
     prerotate_query,
     prerot_fused_qk_scores,
 )
-from turboquant_mlx.sparse_v import sparse_v_matvec
+from .sparse_v import sparse_v_matvec
 
 
 def turboquant_attention(
