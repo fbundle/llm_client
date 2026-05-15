@@ -32,7 +32,7 @@ gui = [
 ]
 
 all = [
-    "llm-gui-client[tools,web,mcp,server]",
+    "llm-gui-client[tools,web,mcp,gui,server]",
 ]
 
 [tool.hatch.build.targets.wheel]

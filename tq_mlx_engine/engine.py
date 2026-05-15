@@ -91,25 +91,63 @@ class MlxEngine:
     def __init__(self, model_path: str, adapter_path: str | None = None):
         self.model_path = model_path
         logging.info(f"Loading model: {model_path}")
-        self.model, self.tokenizer = mlx_lm.load(
+        self.model, self.tokenizer, self.config = mlx_lm.load(
             path_or_hf_repo=model_path,
             adapter_path=adapter_path,
+            return_config=True,
+        )
+        self._max_length = (
+            self.tokenizer.model_max_length
+            or self.config.get("model_max_length", 0)
+            or self.config.get("max_position_embeddings", 0)
         )
         logging.info("Model loaded")
+        logging.info(f"Model max context length: {self._max_length}")
 
     def build_prompt(self, messages: list[dict],
                      tools: list[dict] | None = None,
+                     max_tokens: int = 512,
                      chat_template_kwargs: dict | None = None) -> str:
         formatted = format_messages(messages)
         if chat_template_kwargs is None:
             chat_template_kwargs = {}
-        return self.tokenizer.apply_chat_template(
+        prompt = self.tokenizer.apply_chat_template(
             conversation=formatted,
             tools=tools,
             tokenize=False,
             add_generation_prompt=True,
             **chat_template_kwargs,
         )
+        return self._truncate(prompt, max_tokens)
+
+    def _truncate(self, prompt: str, max_tokens: int) -> str:
+        """Truncate prompt to fit within model context, keeping head and tail.
+
+        budget = model_max_length - max_tokens
+        If prompt fits in budget, return as-is.
+        Otherwise keep the first budget/2 tokens and the last budget/2 tokens.
+        """
+        model_max = self._max_length
+        if model_max <= 0:
+            return prompt
+
+        budget = model_max - max_tokens
+        if budget <= 0:
+            raise ValueError(
+                f"max_tokens ({max_tokens}) exceeds model context length "
+                f"({model_max}). Reduce max_tokens."
+            )
+
+        tokens = self.tokenizer.encode(prompt)
+        if len(tokens) <= budget:
+            return prompt
+
+        logging.warning(
+            f"Truncating prompt: {len(tokens)} tokens > {budget} budget "
+            f"(model_max={model_max}, max_tokens={max_tokens})"
+        )
+        A = budget // 2
+        return self.tokenizer.decode(tokens[:A] + tokens[-A:])
 
     def generate(self, messages: list[dict],
                  max_tokens: int = 512,
@@ -121,7 +159,7 @@ class MlxEngine:
                  tools: list[dict] | None = None,
                  chat_template_kwargs: dict | None = None) -> Iterator[str]:
         """Yield raw text tokens from the model for the given messages."""
-        prompt = self.build_prompt(messages, tools, chat_template_kwargs)
+        prompt = self.build_prompt(messages, tools, max_tokens, chat_template_kwargs)
 
         sampler = mlx_lm.sample_utils.make_sampler(
             temp=temperature, top_p=top_p, top_k=top_k, min_p=min_p,
