@@ -9,6 +9,12 @@ from playwright.sync_api import Page, sync_playwright
 from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
+def _slice(text: str, beg: int, end: int) -> str:
+    if end == -1:
+        return text[beg:]
+    return text[beg:end]
+
+
 class PlaywrightBrowser:
     """Stateless browser automation — connects, acts, disconnects per call."""
 
@@ -29,115 +35,115 @@ class PlaywrightBrowser:
 
     # -- navigation --------------------------------------------------------
 
-    def navigate(self, url: str) -> str:
+    def navigate(self, url: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            return f"navigated to {url} — title: {page.title()}"
+            return _slice(f"navigated to {url} — title: {page.title()}", beg, end)
 
-    def go_back(self) -> str:
+    def go_back(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.go_back(wait_until="domcontentloaded", timeout=10000)
-            return f"went back — {page.url}"
+            return _slice(f"went back — {page.url}", beg, end)
 
-    def go_forward(self) -> str:
+    def go_forward(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.go_forward(wait_until="domcontentloaded", timeout=10000)
-            return f"went forward — {page.url}"
+            return _slice(f"went forward — {page.url}", beg, end)
 
-    def reload(self) -> str:
+    def reload(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.reload(wait_until="domcontentloaded", timeout=30000)
-            return f"reloaded — {page.url}"
+            return _slice(f"reloaded — {page.url}", beg, end)
 
     # -- mouse -------------------------------------------------------------
 
-    def click(self, selector: str) -> str:
+    def click(self, selector: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.click(selector, timeout=10000)
-            return f"clicked {selector}"
+            return _slice(f"clicked {selector}", beg, end)
 
-    def dblclick(self, selector: str) -> str:
+    def dblclick(self, selector: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.dblclick(selector, timeout=10000)
-            return f"double-clicked {selector}"
+            return _slice(f"double-clicked {selector}", beg, end)
 
-    def hover(self, selector: str) -> str:
+    def hover(self, selector: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.hover(selector, timeout=10000)
-            return f"hovered {selector}"
+            return _slice(f"hovered {selector}", beg, end)
 
     # -- input -------------------------------------------------------------
 
-    def type_text(self, selector: str, text: str) -> str:
+    def type_text(self, selector: str, text: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.fill(selector, text, timeout=10000)
-            return f"typed into {selector}"
+            return _slice(f"typed into {selector}", beg, end)
 
-    def press_key(self, key: str) -> str:
+    def press_key(self, key: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.keyboard.press(key)
-            return f"pressed {key}"
+            return _slice(f"pressed {key}", beg, end)
 
-    def select_option(self, selector: str, value: str) -> str:
+    def select_option(self, selector: str, value: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.select_option(selector, value, timeout=10000)
-            return f"selected '{value}' in {selector}"
+            return _slice(f"selected '{value}' in {selector}", beg, end)
 
-    def check(self, selector: str) -> str:
+    def check(self, selector: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.check(selector, timeout=10000)
-            return f"checked {selector}"
+            return _slice(f"checked {selector}", beg, end)
 
-    def uncheck(self, selector: str) -> str:
+    def uncheck(self, selector: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.uncheck(selector, timeout=10000)
-            return f"unchecked {selector}"
+            return _slice(f"unchecked {selector}", beg, end)
 
     # -- read --------------------------------------------------------------
 
-    def screenshot(self) -> bytes:
+    def screenshot(self, beg: int = 0, end: int = -1) -> bytes:
         with self._page() as page:
             return page.screenshot(type="jpeg", quality=80, full_page=False)
 
-    def content(self) -> str:
+    def content(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
-            return page.inner_text("body")
+            return _slice(page.inner_text("body"), beg, end)
 
-    def html(self) -> str:
+    def html(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
-            return page.content()
+            return _slice(page.content(), beg, end)
 
-    def url(self) -> str:
+    def url(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
-            return page.url
+            return _slice(page.url, beg, end)
 
-    def title(self) -> str:
+    def title(self, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
-            return page.title()
+            return _slice(page.title(), beg, end)
 
-    def evaluate(self, js: str) -> str:
+    def evaluate(self, js: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
-            return str(page.evaluate(js))
+            return _slice(str(page.evaluate(js)), beg, end)
 
     # -- scroll ------------------------------------------------------------
 
-    def scroll(self, direction: str) -> str:
+    def scroll(self, direction: str, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             page.evaluate(f"window.scrollBy(0, {'-window.innerHeight' if direction == 'up' else 'window.innerHeight'})")
-            return f"scrolled {direction}"
+            return _slice(f"scrolled {direction}", beg, end)
 
     # -- wait --------------------------------------------------------------
 
-    def wait(self, selector: str = "", ms: int = 0) -> str:
+    def wait(self, selector: str = "", ms: int = 0, beg: int = 0, end: int = -1) -> str:
         with self._page() as page:
             import time
             if ms > 0:
                 time.sleep(ms / 1000)
-                return f"waited {ms}ms"
+                return _slice(f"waited {ms}ms", beg, end)
             if selector:
                 page.wait_for_selector(selector, timeout=15000)
-                return f"element appeared: {selector}"
-            return "nothing to wait for"
+                return _slice(f"element appeared: {selector}", beg, end)
+            return _slice("nothing to wait for", beg, end)
 
 
 # ------------------------------------------------------------------
@@ -167,6 +173,11 @@ _DISPATCH: dict[str, str] = {
     "browser_wait":          "wait",
 }
 
+_BEG_END = {
+    "beg": {"type": "integer", "description": "Start index for partial text extraction (0-based, default 0)."},
+    "end": {"type": "integer", "description": "End index for partial text extraction (-1 = to end, default -1)."},
+}
+
 _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
     "browser_navigate": {
         "type": "function",
@@ -177,6 +188,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "url": {"type": "string", "description": "The URL to navigate to."},
+                    **_BEG_END,
                 },
                 "required": ["url"],
             },
@@ -187,7 +199,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_go_back",
             "description": "Go back to the previous page.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_go_forward": {
@@ -195,7 +207,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_go_forward",
             "description": "Go forward to the next page.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_reload": {
@@ -203,7 +215,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_reload",
             "description": "Reload the current page.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_click": {
@@ -215,6 +227,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the element to click."},
+                    **_BEG_END,
                 },
                 "required": ["selector"],
             },
@@ -229,6 +242,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the element to double-click."},
+                    **_BEG_END,
                 },
                 "required": ["selector"],
             },
@@ -243,6 +257,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the element to hover over."},
+                    **_BEG_END,
                 },
                 "required": ["selector"],
             },
@@ -258,6 +273,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the input element."},
                     "text": {"type": "string", "description": "Text to type."},
+                    **_BEG_END,
                 },
                 "required": ["selector", "text"],
             },
@@ -272,6 +288,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "key": {"type": "string", "description": "Key name to press."},
+                    **_BEG_END,
                 },
                 "required": ["key"],
             },
@@ -287,6 +304,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the <select> element."},
                     "value": {"type": "string", "description": "Value attribute of the option to select."},
+                    **_BEG_END,
                 },
                 "required": ["selector", "value"],
             },
@@ -301,6 +319,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the checkbox/radio."},
+                    **_BEG_END,
                 },
                 "required": ["selector"],
             },
@@ -315,6 +334,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector of the checkbox."},
+                    **_BEG_END,
                 },
                 "required": ["selector"],
             },
@@ -325,7 +345,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_screenshot",
             "description": "Take a screenshot of the current browser viewport.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_content": {
@@ -333,7 +353,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_content",
             "description": "Get the visible text content of the current page.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_html": {
@@ -341,7 +361,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_html",
             "description": "Get the full HTML source of the current page.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_get_url": {
@@ -349,7 +369,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_get_url",
             "description": "Get the current page URL.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_get_title": {
@@ -357,7 +377,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
         "function": {
             "name": "browser_get_title",
             "description": "Get the current page title.",
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {"type": "object", "properties": {**_BEG_END}},
         },
     },
     "browser_evaluate": {
@@ -369,6 +389,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "type": "object",
                 "properties": {
                     "js": {"type": "string", "description": "JavaScript code to execute."},
+                    **_BEG_END,
                 },
                 "required": ["js"],
             },
@@ -387,6 +408,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                         "enum": ["up", "down"],
                         "description": "Direction to scroll.",
                     },
+                    **_BEG_END,
                 },
                 "required": ["direction"],
             },
@@ -402,6 +424,7 @@ _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
                 "properties": {
                     "selector": {"type": "string", "description": "CSS selector to wait for."},
                     "ms": {"type": "integer", "description": "Milliseconds to sleep."},
+                    **_BEG_END,
                 },
             },
         },
@@ -418,14 +441,12 @@ class PlaywrightBrowserTool(Tool):
         if method_name is None:
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
+        beg = int(kwargs.get("beg", 0))
+        end = int(kwargs.get("end", -1))
+
         try:
             method = getattr(self._browser, method_name)
-            if name in ("browser_screenshot",):
-                data = method()
-                b64 = base64.b64encode(data).decode()
-                return ToolOutput(state_change=False, output="screenshot taken", error="", output_image=f"data:image/jpeg;base64,{b64}")
 
-            # Build kwargs for the method from the dispatch kwargs
             sig: dict[str, object] = {}
             if name == "browser_navigate":
                 sig["url"] = kwargs["url"]
@@ -448,8 +469,18 @@ class PlaywrightBrowserTool(Tool):
             elif name == "browser_wait":
                 sig["selector"] = kwargs.get("selector", "")
                 sig["ms"] = kwargs.get("ms", 0)
+            elif name == "browser_screenshot":
+                sig["beg"] = kwargs.get("beg", 0)
+                sig["end"] = kwargs.get("end", -1)
+
+            if name != "browser_screenshot":
+                sig["beg"] = beg
+                sig["end"] = end
 
             out = method(**sig)
+            if name in ("browser_screenshot",):
+                b64 = base64.b64encode(out).decode()
+                return ToolOutput(state_change=False, output="screenshot taken", error="", output_image=f"data:image/jpeg;base64,{b64}")
             return ToolOutput(state_change=True, output=str(out), error="")
         except Exception as e:
             return ToolOutput(state_change=False, output="", error=str(e))

@@ -153,12 +153,18 @@ def _stream_response(
     model: str,
     messages: list[ChatCompletionMessageParam],
     tools: list[ChatCompletionFunctionToolParam],
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
     cb: Callbacks,
 ) -> tuple[str, list[ToolCall]]:
     stream = client.chat.completions.create(
         model=model,
         messages=messages,
         tools=tools,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
         stream=True,
     )
 
@@ -339,7 +345,8 @@ class LLMClient:
         while not cb.is_stopped():
             try:
                 content, tool_calls = _stream_response(
-                    self._client, self.model, self.messages, tools, cb,
+                    self._client, self.model, self.messages, tools,
+                    self.max_tokens, self.temperature, self.top_p, cb,
                 )
             except Exception as e:
                 cb.on_tool_error(f"API error: {e}")

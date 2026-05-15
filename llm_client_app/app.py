@@ -596,6 +596,9 @@ class MainWindow(QMainWindow):
             base_url=self._url_edit.text().strip() or self._app.base_url,
             api_key=self._key_edit.text().strip() or self._app.api_key,
             model=self._model_edit.text().strip() or self._app.model,
+            temperature=float(self._temp_edit.text().strip() or self._app.temperature),
+            top_p=float(self._top_p_edit.text().strip() or self._app.top_p),
+            max_tokens=int(self._max_tok_edit.text().strip() or self._app.max_tokens),
         )
 
         checked = [self._all_tools[k] for k, cb in self._tool_checkboxes.items() if cb.isChecked()]

@@ -10,9 +10,7 @@ import argparse
 import logging
 
 import mlx.core as mx
-from tq_mlx_engine.engine import patch_cache
 from tq_mlx_engine.server import TQServer
-from tq_mlx_engine.turboquant_mlx import apply_patch
 
 
 def main() -> None:
@@ -33,8 +31,11 @@ def main() -> None:
                         help="TurboQuant bit width for KV cache (1-4, default: 3)")
     parser.add_argument("--tq-fused", action="store_true",
                         help="Use fused Metal attention kernels")
-    parser.add_argument("--tq-fp16-layers", type=int, default=4,
-                        help="First and last N layers to keep in FP16 (default: 4)")
+
+    # Context
+    parser.add_argument("--max-context", type=int, default=32768,
+                        help="Maximum context length in tokens (default: 32768). "
+                             "Caps the model's theoretical max to fit GPU memory.")
 
     # Logging
     parser.add_argument("--log-level", type=str, default="INFO",
@@ -47,25 +48,16 @@ def main() -> None:
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
-    # Apply TurboQuant patches before loading the model
-    patch_cache(args.tq_bits, args.tq_fp16_layers, args.tq_fused)
-
-    if args.tq_fused:
-        apply_patch()
-
-    logging.info(
-        f"TurboQuant: {args.tq_bits}-bit, "
-        f"{args.tq_fp16_layers}+{args.tq_fp16_layers} FP16 layers"
-        f"{' (fused)' if args.tq_fused else ''}"
-    )
-
     # Metal memory
     if mx.metal.is_available():
         wired_limit = mx.device_info()["max_recommended_working_set_size"]
         mx.set_wired_limit(wired_limit)
         logging.info(f"Metal wired limit: {wired_limit / (1024**3):.1f} GB")
 
-    server = TQServer(args.model, args.adapter_path)
+    server = TQServer(args.model, args.adapter_path,
+                      max_context=args.max_context,
+                      tq_bits=args.tq_bits,
+                      tq_fused=args.tq_fused)
 
     # Pre-load the default model so the first request doesn't block
     server._get_engine(args.model)
