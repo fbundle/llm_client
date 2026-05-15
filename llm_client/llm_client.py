@@ -26,6 +26,12 @@ from llm_client.tool import Tool, ToolOutput
 # Utility
 # ------------------------------------------------------------------
 
+def _make_client(base_url: str, api_key: str) -> OpenAI | None:
+    if not base_url or not api_key:
+        return None
+    return OpenAI(base_url=base_url, api_key=api_key)
+
+
 def safe_json_kwargs(kwargs_str: str) -> str:
     try:
         json.loads(kwargs_str)
@@ -263,7 +269,7 @@ class LLMClient:
     ) -> None:
         self.base_url = base_url
         self.api_key = api_key
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._client = _make_client(base_url, api_key)
         self.model = model
         self.temperature = temperature
         self.top_p = top_p
@@ -290,7 +296,7 @@ class LLMClient:
         if api_key:
             self.api_key = api_key
         if base_url or api_key:
-            self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+            self._client = _make_client(self.base_url, self.api_key)
         if temperature is not None:
             self.temperature = temperature
         if top_p is not None:
@@ -314,6 +320,10 @@ class LLMClient:
             "role": "user",
             "content": [{"type": "text", "text": user_message}],
         })
+
+        if self._client is None:
+            cb.on_tool_error("Missing credentials — set model, base_url, and api_key first")
+            return
 
         tools = list(self.tool.tool_schemas().values()) if self.tool is not None else []
 
@@ -346,6 +356,9 @@ class LLMClient:
     def generate_prompt(self, meta_prompt: str, system_prompt: str, cb: Callbacks | None = None) -> str:
         if cb is None:
             cb = DefaultCallbacks()
+        if self._client is None:
+            cb.on_tool_error("Missing credentials — set model, base_url, and api_key first")
+            return ""
         stream = self._client.chat.completions.create(
             model=self.model,
             messages=[

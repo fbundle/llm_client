@@ -8,7 +8,9 @@ NAME="LLM Agent"
 PYINSTALLER="uv run --with pyinstaller pyinstaller"
 MAIN="$ROOT/llm_client_window/window.py"
 ICON="$ROOT/assets/icon.png"
+ASSETS="$ROOT/assets"
 
+rm -rf "$BIN"
 mkdir -p "$BIN"
 
 case "$(uname -s)" in
@@ -19,6 +21,7 @@ case "$(uname -s)" in
             --windowed \
             --name "$NAME" \
             --icon $ICON \
+            --add-data "$ASSETS:assets" \
             --distpath "$BIN" \
             $MAIN
         ;;
@@ -28,9 +31,12 @@ case "$(uname -s)" in
             --onefile \
             --windowed \
             --name "$NAME" \
+            --add-data "$ASSETS:assets" \
             --distpath "$BIN" \
             $MAIN
         ;;
 esac
+
+open "$BIN"
 
 echo "[build] done → $BIN"

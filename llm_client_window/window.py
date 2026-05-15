@@ -47,7 +47,9 @@ from llm_client import (
     SYSTEM_PROMPT,
     ToolList, discover_tools,
 )
-from llm_client_tools.screen import get_screenshot
+from llm_client_tools.keyboard import KeyboardTool
+from llm_client_tools.mouse import MouseTool
+from llm_client_tools.screen import ScreenTool, get_screenshot
 
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
@@ -198,8 +200,17 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
 
         self._env = _read_env()
-        tools_dir = Path(__file__).resolve().parent.parent / "llm_client_tools"
-        self._all_tools = discover_tools(tools_dir)
+        self._all_tools: dict[str, object] = {
+            "mouse": MouseTool(),
+            "keyboard": KeyboardTool(),
+            "screen": ScreenTool(),
+        }
+        try:
+            tools_dir = Path(__file__).resolve().parent.parent / "llm_client_tools"
+            extra = discover_tools(tools_dir)
+            self._all_tools.update(extra)
+        except Exception:
+            pass  # frozen app — only built-in tools available
         self._app = LLMClient(
             base_url=self._env.get("OPENAI_BASE_URL", ""),
             api_key=self._env.get("OPENAI_API_KEY", ""),
@@ -555,7 +566,11 @@ class MainWindow(QMainWindow):
         self._append_log("info", f"> {task}\n")
         self._refresh_screenshot()
 
-        self._app.set_model(model=self._model_edit.text().strip() or self._app.model)
+        self._app.set_model(
+            base_url=self._url_edit.text().strip() or self._app.base_url,
+            api_key=self._key_edit.text().strip() or self._app.api_key,
+            model=self._model_edit.text().strip() or self._app.model,
+        )
 
         checked = [self._all_tools[k] for k, cb in self._tool_checkboxes.items() if cb.isChecked()]
         self._app.set_tool(ToolList(*checked) if checked else None)

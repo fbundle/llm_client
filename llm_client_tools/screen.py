@@ -9,7 +9,7 @@ from PIL import Image as PIL_Image
 
 from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
-_CURSOR_PATH = Path(__file__).resolve().parent / "cursor.png"
+_CURSOR_PATH = Path(__file__).resolve().parent.parent / "assets" / "cursor.png"
 _CURSOR_IMG = PIL_Image.open(_CURSOR_PATH)
 
 
