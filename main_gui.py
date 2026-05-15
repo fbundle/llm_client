@@ -13,10 +13,15 @@ import tkinter as tk
 from tkinter import ttk
 
 from app import (
+    PROMPT_TIER1_EXPLICIT,
+    PROMPT_TIER2_GUIDED,
+    PROMPT_TIER3_CONCISE,
+    PROMPT_TIER4_MINIMAL,
     SYSTEM_PROMPT,
     Callbacks,
     create_client,
     create_dispatcher,
+    generate_prompt,
     run_task,
 )
 from tools.js_runtime import JSRuntimeTool
@@ -26,6 +31,13 @@ from tools.pikafish import PikaFishTool
 from tools.screen import ScreenTool, get_screenshot
 
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+_PROMPTS: dict[str, str] = {
+    "tier1_explicit": PROMPT_TIER1_EXPLICIT,
+    "tier2_guided": PROMPT_TIER2_GUIDED,
+    "tier3_concise": PROMPT_TIER3_CONCISE,
+    "tier4_minimal": PROMPT_TIER4_MINIMAL,
+}
 
 
 # ------------------------------------------------------------------
@@ -196,9 +208,25 @@ class App:
         model_entry.grid(row=3, column=1, sticky="ew", pady=(0, 2))
         model_entry.bind("<FocusOut>", lambda _e: self._save_env_var("OPENAI_MODEL", self._model_var.get()))
 
-        # Clear History button
-        ttk.Button(frame, text="Clear History", command=self._clear_history, style="Red.TButton").grid(
-            row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        # Sampling
+        ttk.Label(frame, text="Sampling", font=("SF Mono", 11, "bold")).grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(12, 4))
+
+        ttk.Label(frame, text="TEMPERATURE").grid(row=5, column=0, sticky="e", padx=(0, 4))
+        self._temp_var = tk.StringVar(value=self._env.get("OPENAI_TEMPERATURE", "0.7"))
+        ttk.Entry(frame, textvariable=self._temp_var, width=28).grid(row=5, column=1, sticky="ew", pady=(0, 2))
+
+        ttk.Label(frame, text="TOP_P").grid(row=6, column=0, sticky="e", padx=(0, 4))
+        self._top_p_var = tk.StringVar(value=self._env.get("OPENAI_TOP_P", "1.0"))
+        ttk.Entry(frame, textvariable=self._top_p_var, width=28).grid(row=6, column=1, sticky="ew", pady=(0, 2))
+
+        ttk.Label(frame, text="MAX_TOKENS").grid(row=7, column=0, sticky="e", padx=(0, 4))
+        self._max_tok_var = tk.StringVar(value=self._env.get("OPENAI_MAX_TOKENS", "4096"))
+        ttk.Entry(frame, textvariable=self._max_tok_var, width=28).grid(row=7, column=1, sticky="ew", pady=(0, 2))
+
+        # Clear History — always visible at bottom
+        ttk.Button(parent, text="Clear History", command=self._clear_history, style="Red.TButton").pack(
+            side=tk.BOTTOM, fill=tk.X, padx=4, pady=4)
 
     def _build_screenshot(self, parent: ttk.Frame) -> None:
         self._scr_frame = ttk.Frame(parent)
@@ -224,12 +252,28 @@ class App:
 
         self._sys_text = tk.Text(frame, width=34, height=14, wrap=tk.WORD,
                                  font=("SF Mono", 10))
-        self._sys_text.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
+        self._sys_text.grid(row=1, column=0, sticky="nsew", pady=(0, 4))
         self._sys_text.insert("1.0", SYSTEM_PROMPT)
+
+        # Preset selector
+        preset_frame = ttk.Frame(frame)
+        preset_frame.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        preset_frame.grid_columnconfigure(0, weight=1)
+        ttk.Label(preset_frame, text="Preset:", font=("SF Mono", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._preset_var = tk.StringVar(value="custom")
+        self._preset_combo = ttk.Combobox(preset_frame, textvariable=self._preset_var,
+                                          font=("SF Mono", 9), state="readonly")
+        self._preset_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._preset_combo.bind("<<ComboboxSelected>>", self._load_preset)
+        self._preset_combo["values"] = ["custom"] + list(_PROMPTS)
+
+        # Auto-generate button
+        self._gen_btn = ttk.Button(frame, text="Auto Generate Prompt", command=self._auto_generate_prompt)
+        self._gen_btn.grid(row=3, column=0, sticky="ew", pady=(4, 8))
 
         # Tools
         ttk.Label(frame, text="Tools", font=("SF Mono", 11, "bold")).grid(
-            row=2, column=0, sticky="w", pady=(0, 4))
+            row=4, column=0, sticky="w", pady=(0, 4))
 
         tool_names = [
             ("mouse", "Mouse"),
@@ -242,7 +286,43 @@ class App:
             var = tk.BooleanVar(value=True)
             self._tool_vars[key] = var
             ttk.Checkbutton(frame, text=label, variable=var).grid(
-                row=3 + list(self._tool_vars).index(key), column=0, sticky="w")
+                row=5 + list(self._tool_vars).index(key), column=0, sticky="w")
+
+    # ------------------------------------------------------------------
+    # Preset prompts
+    # ------------------------------------------------------------------
+
+    def _load_preset(self, _event: object = None) -> None:
+        name = self._preset_var.get()
+        if name == "custom":
+            return
+        text = _PROMPTS.get(name)
+        if text is not None:
+            self._sys_text.delete("1.0", tk.END)
+            self._sys_text.insert("1.0", text)
+
+    def _auto_generate_prompt(self) -> None:
+        current = self._sys_text.get("1.0", "end-1c").strip()
+        if not current:
+            return
+        self._gen_btn.configure(state=tk.DISABLED)
+        threading.Thread(target=self._do_generate, args=(current,), daemon=True).start()
+
+    def _do_generate(self, current: str) -> None:
+        try:
+            load_dotenv()
+            client = create_client()
+            model = os.environ.get("OPENAI_MODEL", "")
+            self.root.after(0, lambda: self._push_log("info", "\n[auto-generate]\n"))
+            cb = _GuiCallbacks(self)
+            result = generate_prompt(client, model, current, cb)
+            self.root.after(0, lambda r=result: self._sys_text.delete("1.0", tk.END))
+            self.root.after(0, lambda r=result: self._sys_text.insert("1.0", r))
+            self.root.after(0, lambda: self._push_log("info", "\n"))
+        except Exception as e:
+            self.root.after(0, lambda: self._push_log("error", f"\nGenerate failed: {e}\n"))
+        finally:
+            self.root.after(0, lambda: self._gen_btn.configure(state=tk.NORMAL))
 
     # ------------------------------------------------------------------
     # Sidebar toggle

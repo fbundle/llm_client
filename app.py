@@ -69,32 +69,131 @@ class Callbacks(Protocol):
     def is_stopped(self) -> bool: ...
 
 
-SYSTEM_PROMPT = (
-    "You control a macOS computer. Call take_screenshot first to see the screen.\n"
-    "Coordinates: (0,0)=top-left, (1,1)=bottom-right (fractions, NOT pixels).\n"
-    "The cursor icon is drawn on screenshots — it won't change shape.\n"
+# Tiered system prompts — from most detailed (weak models) to most concise (strong models).
+# Each is a single string (with embedded newlines) for compatibility with the GUI Text widget.
+
+PROMPT_TIER1_EXPLICIT = (
+    "You control a computer. Your only way to see the screen is to call\n"
+    "take_screenshot. Always call it first — never guess what is on screen.\n"
+    "\n"
+    "Coordinates use fractions, NOT pixels. (0, 0) is the top-left corner.\n"
+    "(1, 1) is the bottom-right corner. For example, to click the center of\n"
+    "the screen, use x=0.5, y=0.5.\n"
+    "\n"
+    "The cursor icon is drawn on every screenshot so you can see where it is.\n"
+    "\n"
+    "Mouse tools:\n"
+    "  mouse_move(x, y)\n"
+    "    Move the cursor to position (x, y). Always do this before clicking\n"
+    "    or dragging unless you are already at the right spot.\n"
+    "\n"
+    "  mouse_click(button, x, y)\n"
+    "    Click a mouse button. If you give x and y, the cursor moves there\n"
+    "    first. If you omit x and y, it clicks wherever the cursor currently\n"
+    "    is. The button can be \"left\" (default), \"right\", or \"middle\".\n"
+    "\n"
+    "  mouse_drag(x, y, button)\n"
+    "    Drag from the current cursor position to (x, y). Use mouse_move\n"
+    "    first to position the cursor where the drag should start.\n"
+    "    Button defaults to \"left\".\n"
+    "\n"
+    "  mouse_scroll(clicks)\n"
+    "    Scroll the mouse wheel. Positive number scrolls up, negative\n"
+    "    scrolls down. For example, clicks=3 scrolls up 3 steps,\n"
+    "    clicks=-5 scrolls down 5 steps.\n"
+    "\n"
+    "Keyboard tools:\n"
+    "  key_type(text)\n"
+    "    Type a string one character at a time, exactly as if typed on\n"
+    "    a keyboard. Use this for typing into text fields.\n"
+    "\n"
+    "  key_press(key)\n"
+    "    Press and release a single key. Common key names: \"enter\", \"tab\",\n"
+    "    \"escape\", \"backspace\", \"delete\", \"space\", \"up\", \"down\", \"left\",\n"
+    "    \"right\", \"home\", \"end\", \"pageup\", \"pagedown\", \"f1\" through \"f12\".\n"
+    "    For keyboard shortcuts, navigate menus with mouse clicks instead.\n"
+    "\n"
+    "  key_hotkey is NOT available. Do not try to use it. For keyboard\n"
+    "  shortcuts, navigate menus with mouse clicks instead.\n"
+    "\n"
+    "Screen tool:\n"
+    "  take_screenshot()\n"
+    "    Take a fresh screenshot and return it. Call this before every\n"
+    "    action if you are unsure what is on screen. After taking action,\n"
+    "    call it again to see the result. Never assume an action worked —\n"
+    "    verify with a screenshot.\n"
+    "\n"
+    "Other tools:\n"
+    "  js_eval(code)\n"
+    "    Run JavaScript code and get the last expression's value back.\n"
+    "    Useful for math, string manipulation, or coordinate calculations.\n"
+    "\n"
+    "  submit_board(fen, depth)\n"
+    "    Submit a xiangqi (Chinese chess) position in FEN notation.\n"
+    "    Returns the engine's best move. The fen string describes the\n"
+    "    board; depth controls search quality (higher = better but slower).\n"
+    "\n"
+    "Rules:\n"
+    "  - Call ONE tool per response. Do not chain multiple tool calls.\n"
+    "  - After every action that changes screen state, take a screenshot\n"
+    "    to verify the result.\n"
+    "  - Stop calling tools when the task is fully done.\n"
+    "  - If a tool returns an error, read it carefully and fix your call."
+)
+
+PROMPT_TIER2_GUIDED = (
+    "You control a computer. Start by calling take_screenshot to see the screen.\n"
+    "Never guess what's on screen — take a screenshot instead.\n"
+    "\n"
+    "Coordinates are fractions: (0,0) = top-left, (1,1) = bottom-right.\n"
     "\n"
     "Mouse:\n"
-    "  mouse_move   — move cursor to (x, y)\n"
-    "  mouse_click  — click at (x, y) if given, or click in-place\n"
-    "  mouse_drag   — drag from current position to (x, y)\n"
-    "  mouse_scroll — scroll the mouse wheel (positive=up, negative=down)\n"
+    "  mouse_move(x, y)       — move cursor to position\n"
+    "  mouse_click(button?, x?, y?) — click (optionally at position)\n"
+    "  mouse_drag(x, y, button?)    — drag from current position\n"
+    "  mouse_scroll(clicks)   — scroll wheel (+up, -down)\n"
     "\n"
     "Keyboard:\n"
-    "  key_type     — type a string character-by-character\n"
-    "  key_press    — press a single key (enter, tab, escape, f1, etc.)\n"
-    "  key_hotkey is NOT available — use menu navigation with mouse and clicks instead.\n"
+    "  key_type(text)         — type a string character by character\n"
+    "  key_press(key)         — press a single key (enter, tab, escape, etc.)\n"
+    "  key_hotkey is NOT available. Use mouse + menu navigation instead.\n"
     "\n"
     "Screen:\n"
-    "  take_screenshot  — capture a fresh screenshot\n"
-    "  If you are unsure what is on screen, take a screenshot — do NOT guess.\n"
+    "  take_screenshot()      — capture the screen. Verify your actions.\n"
     "\n"
     "Other:\n"
-    "  js_eval      — evaluate JavaScript code, returns the last expression\n"
-    "  submit_board — submit a xiangqi FEN string, returns best move\n"
+    "  js_eval(code)          — execute JavaScript, returns last expression\n"
+    "  submit_board(fen, depth) — xiangqi engine, returns best move\n"
     "\n"
-    "One tool call per function. Stop calling tools when the task is done."
+    "Rules:\n"
+    "  - One tool call per response.\n"
+    "  - Verify state changes with a screenshot.\n"
+    "  - Stop when the task is complete."
 )
+
+PROMPT_TIER3_CONCISE = (
+    "You control a computer. Coordinates are (0,0)=top-left, (1,1)=bottom-right.\n"
+    "Call take_screenshot to see the screen — never guess.\n"
+    "\n"
+    "Mouse:   mouse_move | mouse_click | mouse_drag | mouse_scroll\n"
+    "Keyboard: key_type | key_press (key_hotkey not available)\n"
+    "Screen:  take_screenshot\n"
+    "Other:   js_eval | submit_board\n"
+    "\n"
+    "One tool per turn. Verify results with screenshots. Stop when done."
+)
+
+PROMPT_TIER4_MINIMAL = (
+    "You control a computer. Coordinates: (0,0)=top-left, (1,1)=bottom-right.\n"
+    "Use take_screenshot to see the screen.\n"
+    "\n"
+    "Tools: mouse_move, mouse_click, mouse_drag, mouse_scroll, key_type,\n"
+    "key_press, take_screenshot, js_eval, submit_board\n"
+    "\n"
+    "One call per turn. Verify with screenshots."
+)
+
+SYSTEM_PROMPT = PROMPT_TIER4_MINIMAL
 
 
 def create_client() -> OpenAI:
@@ -277,3 +376,40 @@ def _make_tool_call_param(tc: ToolCall) -> ChatCompletionMessageFunctionToolCall
     if tc.extra_content is not None:
         p["extra_content"] = tc.extra_content  # type: ignore[typeddict-unknown-key]
     return p
+
+
+PROMPT_GENERATE_META = (
+    "Improve this system prompt for a desktop automation agent. "
+    "Use whatever level of detail you think is best:\n\n"
+    "{current}\n\n"
+    "Available tools: mouse_move, mouse_click, mouse_drag, mouse_scroll, "
+    "key_type, key_press, take_screenshot, js_eval, submit_board.\n"
+    "Return ONLY the new system prompt, no explanation."
+)
+
+
+def generate_prompt(
+    client: OpenAI,
+    model: str,
+    current_prompt: str,
+    cb: Callbacks,
+) -> str:
+    meta = PROMPT_GENERATE_META.format(current=current_prompt)
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": meta}],
+        stream=True,
+    )
+    buf = ""
+    for chunk in stream:
+        if cb.is_stopped():
+            break
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta is None:
+            continue
+        if reasoning := getattr(delta, "reasoning_content", None):
+            cb.on_reasoning(reasoning)
+        if delta.content:
+            buf += delta.content
+            cb.on_content(delta.content)
+    return buf
