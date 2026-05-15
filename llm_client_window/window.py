@@ -60,15 +60,6 @@ _PROMPTS: dict[str, str] = {
     "tier4_minimal": PROMPT_TIER4_MINIMAL,
 }
 
-_TOOL_LABELS: dict[str, str] = {
-    "mouse": "Mouse",
-    "keyboard": "Keyboard",
-    "pikafish": "Pikafish",
-    "js_runtime": "JS Runtime",
-    "screen": "Screen",
-}
-
-
 def _read_env() -> dict[str, str]:
     result: dict[str, str] = {}
     if not _ENV_PATH.exists():
@@ -377,7 +368,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("Tools"))
         for key in self._all_tools:
-            label = _TOOL_LABELS.get(key, key.replace("_", " ").title())
+            label = key
             cb = QCheckBox(label)
             cb.setChecked(True)
             self._tool_checkboxes[key] = cb
