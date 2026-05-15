@@ -281,3 +281,4 @@ bin/
 run_claude
 tmp
 assets
+vendor
