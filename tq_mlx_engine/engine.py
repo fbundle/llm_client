@@ -28,7 +28,6 @@ class MlxEngine:
             adapter_path=adapter_path,
             return_config=True,
         )
-        logging.info("Model loaded")
         self.cache_dict: PrefixDict[Cache] = PrefixDict()
 
         self._make_cache = lambda: [
