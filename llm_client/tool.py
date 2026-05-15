@@ -75,7 +75,7 @@ def discover_tools(tools_dir: Path) -> dict[str, Tool]:
     for f in sorted(tools_dir.glob("*.py")):
         if f.name.startswith("_") or f.name == "tool.py":
             continue
-        spec = importlib.util.spec_from_file_location(f"tools.{f.stem}", f)
+        spec = importlib.util.spec_from_file_location(f"llm_client_tools.{f.stem}", f)
         if spec is None or spec.loader is None:
             continue
         mod = importlib.util.module_from_spec(spec)

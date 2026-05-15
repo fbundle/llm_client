@@ -17,7 +17,7 @@ case "$(uname -s)" in
             --icon "$ROOT/assets/icon.icns" \
             --add-data "$ROOT/vendor:vendor" \
             --distpath "$BIN" \
-            "$ROOT/main_gui.py"
+            "$ROOT/llm_client_window/window.py"
         ;;
     Linux|*)
         echo "[build] targeting Linux binary"
@@ -27,7 +27,7 @@ case "$(uname -s)" in
             --name "$NAME" \
             --add-data "$ROOT/vendor:vendor" \
             --distpath "$BIN" \
-            "$ROOT/main_gui.py"
+            "$ROOT/llm_client_window/window.py"
         ;;
 esac
 

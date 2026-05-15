@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+LIB="llm_client"
+
+current=$(grep '__version__' "$LIB/__init__.py" | grep -o '[0-9]*\.[0-9]*\.[0-9]*')
+IFS='.' read -r major minor patch <<< "$current"
+new="$major.$minor.$((patch + 1))"
+sed -i '' "s/__version__ = \"$current\"/__version__ = \"$new\"/" "$LIB/__init__.py"
+echo "bumped $current -> $new"
+
+rm -rf dist
+uv build
+uv publish

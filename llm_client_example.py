@@ -17,7 +17,7 @@ def _must_get_env(key: str) -> str:
 def main() -> None:
     load_dotenv()
 
-    tools_dir = Path(__file__).resolve().parent / "tools"
+    tools_dir = Path(__file__).resolve().parent / "llm_client_tools"
     all_tools = discover_tools(tools_dir)
     tool = ToolList(*all_tools.values())
 

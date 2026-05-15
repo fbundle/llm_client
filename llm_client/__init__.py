@@ -1,3 +1,5 @@
+__version__ = "0.0.1"
+
 from llm_client.llm_client import Callbacks, DefaultCallbacks, LLMClient
 from llm_client.prompt import (
     PROMPT_GENERATE_META,

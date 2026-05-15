@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import base64
-import json
 import os
 import threading
-from io import BytesIO
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PIL import Image as PIL_Image
-
 from PySide6.QtCore import (
     QEvent,
     QThread,
     Qt,
-    QTimer,
     Signal,
 )
 from PySide6.QtGui import (
@@ -35,7 +30,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
-    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QTextEdit,
@@ -53,9 +47,9 @@ from llm_client import (
     SYSTEM_PROMPT,
     ToolList, discover_tools,
 )
-from tools.screen import get_screenshot
+from llm_client_tools.screen import get_screenshot
 
-_ENV_PATH = Path(__file__).resolve().parent / ".env"
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 _PROMPTS: dict[str, str] = {
     "tier1_explicit": PROMPT_TIER1_EXPLICIT,
@@ -73,10 +67,6 @@ _TOOL_LABELS: dict[str, str] = {
 }
 
 
-# ------------------------------------------------------------------
-# .env read-only (never writes)
-# ------------------------------------------------------------------
-
 def _read_env() -> dict[str, str]:
     result: dict[str, str] = {}
     if not _ENV_PATH.exists():
@@ -89,10 +79,6 @@ def _read_env() -> dict[str, str]:
         result[k.strip()] = v.strip().strip("\"'")
     return result
 
-
-# ------------------------------------------------------------------
-# Log formatter — converts tag/text to QTextCharFormat
-# ------------------------------------------------------------------
 
 _TAG_COLORS: dict[str, QColor] = {
     "reasoning":   QColor("#888888"),
@@ -115,9 +101,9 @@ def _format_for_tag(tag: str, text: str) -> tuple[str, QTextCharFormat]:
 # ------------------------------------------------------------------
 
 class AgentThread(QThread):
-    log_signal = Signal(str, str)        # tag, text
-    screenshot_signal = Signal(str)      # data_url
-    finished_signal = Signal(int)        # run_id
+    log_signal = Signal(str, str)
+    screenshot_signal = Signal(str)
+    finished_signal = Signal(int)
 
     def __init__(
         self,
@@ -212,7 +198,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
 
         self._env = _read_env()
-        tools_dir = Path(__file__).resolve().parent / "tools"
+        tools_dir = Path(__file__).resolve().parent.parent / "llm_client_tools"
         self._all_tools = discover_tools(tools_dir)
         self._app = LLMClient(
             base_url=self._env.get("OPENAI_BASE_URL", ""),
@@ -239,18 +225,15 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        # Central widget: screenshot (top) | log + controls (bottom)
         central_splitter = QSplitter(Qt.Orientation.Vertical)
         self.setCentralWidget(central_splitter)
 
-        # Screenshot
         self._scr_label = QLabel()
         self._scr_label.setObjectName("scrLabel")
         self._scr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._scr_label.setMinimumSize(200, 200)
         central_splitter.addWidget(self._scr_label)
 
-        # Bottom: log + controls
         bottom = QWidget()
         bottom_layout = QVBoxLayout(bottom)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
@@ -261,7 +244,6 @@ class MainWindow(QMainWindow):
         self._log.setFont(QFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)))
         bottom_layout.addWidget(self._log)
 
-        # Control bar
         control = QWidget()
         control_layout = QHBoxLayout(control)
         control_layout.setContentsMargins(0, 0, 0, 0)
@@ -281,7 +263,6 @@ class MainWindow(QMainWindow):
         central_splitter.setStretchFactor(0, 2)
         central_splitter.setStretchFactor(1, 1)
 
-        # Left dock — Environment
         self._left_dock = QDockWidget("Environment")
         self._left_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
@@ -290,7 +271,6 @@ class MainWindow(QMainWindow):
         self._left_dock.setWidget(self._build_left_panel())
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._left_dock)
 
-        # Right dock — System Prompt
         self._right_dock = QDockWidget("System Prompt")
         self._right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
@@ -299,7 +279,6 @@ class MainWindow(QMainWindow):
         self._right_dock.setWidget(self._build_right_panel())
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._right_dock)
 
-        # View menu — toggles docks back after closing
         menu = self.menuBar().addMenu("View")
         menu.addAction(self._left_dock.toggleViewAction())
         menu.addAction(self._right_dock.toggleViewAction())
@@ -310,24 +289,20 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
 
-        # URL
         layout.addWidget(QLabel("BASE_URL"))
         self._url_edit = QLineEdit(self._env.get("OPENAI_BASE_URL", ""))
         self._url_edit.setPlaceholderText("https://api.openai.com/v1")
         layout.addWidget(self._url_edit)
 
-        # Key
         layout.addWidget(QLabel("API_KEY"))
         self._key_edit = QLineEdit(self._env.get("OPENAI_API_KEY", ""))
         self._key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self._key_edit)
 
-        # Model
         layout.addWidget(QLabel("MODEL"))
         self._model_edit = QLineEdit(self._env.get("OPENAI_MODEL", ""))
         layout.addWidget(self._model_edit)
 
-        # Save env to os.environ
         for edit, key in [
             (self._url_edit, "OPENAI_BASE_URL"),
             (self._key_edit, "OPENAI_API_KEY"),
@@ -336,7 +311,6 @@ class MainWindow(QMainWindow):
             edit.editingFinished.connect(
                 lambda e=edit, k=key: self._save_env_var(k, e.text()))
 
-        # Sampling
         label = QLabel("Sampling")
         label.setStyleSheet("font-weight: bold; margin-top: 12px;")
         layout.addWidget(label)
@@ -368,7 +342,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
 
-        # System prompt editor
         layout.addWidget(QLabel("System Prompt"))
         self._sys_edit = QTextEdit()
         self._sys_edit.setFont(QFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)))
@@ -376,7 +349,6 @@ class MainWindow(QMainWindow):
         self._sys_edit.setMinimumHeight(150)
         layout.addWidget(self._sys_edit, stretch=1)
 
-        # Preset selector
         preset_layout = QHBoxLayout()
         preset_layout.setSpacing(4)
         preset_layout.addWidget(QLabel("Preset:"))
@@ -388,12 +360,10 @@ class MainWindow(QMainWindow):
         preset_layout.addWidget(self._preset_combo)
         layout.addLayout(preset_layout)
 
-        # Auto-generate
         self._gen_btn = QPushButton("Auto Generate Prompt")
         self._gen_btn.clicked.connect(self._auto_generate_prompt)
         layout.addWidget(self._gen_btn)
 
-        # Tools
         layout.addWidget(QLabel("Tools"))
         for key in self._all_tools:
             label = _TOOL_LABELS.get(key, key.replace("_", " ").title())
@@ -405,7 +375,7 @@ class MainWindow(QMainWindow):
         return w
 
     # ------------------------------------------------------------------
-    # Styling (dark / light follows system)
+    # Styling
     # ------------------------------------------------------------------
 
     _DARK = """
@@ -585,7 +555,6 @@ class MainWindow(QMainWindow):
         self._append_log("info", f"> {task}\n")
         self._refresh_screenshot()
 
-        # Sync state from UI into app
         self._app.set_model(model=self._model_edit.text().strip() or self._app.model)
 
         checked = [self._all_tools[k] for k, cb in self._tool_checkboxes.items() if cb.isChecked()]
@@ -605,10 +574,6 @@ class MainWindow(QMainWindow):
         self._run_btn.setText("Run")
         self._run_btn.setStyleSheet("")
 
-
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
 
 def main() -> None:
     load_dotenv()

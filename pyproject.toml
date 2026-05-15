@@ -1,13 +1,27 @@
 [project]
-name = "llm-client"
-version = "0.1.0"
+name = "llm-gui-client"
+dynamic = ["version"]
 requires-python = ">=3.12"
 dependencies = [
-    "mini-racer>=0.14.1",
     "openai>=2.36.0",
+]
+
+[project.optional-dependencies]
+tools = [
+    "mini-racer>=0.14.1",
     "pillow>=12.2.0",
     "pyautogui>=0.9.54",
     "pyscreeze>=1.0.1",
+]
+gui = [
+    "llm-gui-client[tools]",
     "pyside6>=6.10.0",
     "python-dotenv>=1.2.2",
 ]
+
+[tool.hatch.version]
+path = "llm_client/__init__.py"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
