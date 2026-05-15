@@ -46,24 +46,6 @@ def _read_env() -> dict[str, str]:
     return result
 
 
-def _write_env(key: str, value: str) -> None:
-    """Update *key* in the .env file, preserving other lines and comments."""
-    lines: list[str] = []
-    found = False
-    if _ENV_PATH.exists():
-        for line in _ENV_PATH.read_text().splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#") and "=" in stripped:
-                k = stripped.split("=", 1)[0].strip()
-                if k == key:
-                    lines.append(f'{key}="{value}"')
-                    found = True
-                    continue
-            lines.append(line)
-    if not found:
-        lines.append(f'{key}="{value}"')
-    _ENV_PATH.write_text("\n".join(lines) + "\n")
-
 
 # ------------------------------------------------------------------
 # GUI
@@ -293,7 +275,6 @@ class App:
     def _save_env_var(self, key: str, value: str) -> None:
         if value:
             os.environ[key] = value
-            _write_env(key, value)
 
     # ------------------------------------------------------------------
     # Clear history
