@@ -343,7 +343,7 @@ class LLMClient:
                 )
             except Exception as e:
                 cb.on_tool_error(f"API error: {e}")
-                self.messages.pop(msg_idx)  # roll back user message on error
+                del self.messages[msg_idx:]  # roll back entire turn on error
                 break
 
             if not tool_calls or self.tool is None:
