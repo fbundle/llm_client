@@ -5,12 +5,10 @@ import mlx.core as mx
 import mlx_lm
 from tq_mlx_engine.generate import StreamGenerationIteration, stream_generate
 from tq_mlx_engine.prefix_dict import PrefixDict
-from tq_mlx_engine.turboquant_mlx import apply_patch
-from tq_mlx_engine.turboquant_mlx.cache import TurboQuantKVCache
 from mlx_lm.models.cache import KVCache
 
 
-type Cache = list[TurboQuantKVCache]
+type Cache = list[KVCache]
 
 def get_cache_prompt_length(cache: Cache) -> int:
     return cache[0].offset
@@ -19,8 +17,7 @@ class MlxEngine:
     def __init__(self,
         model_path: str,
         adapter_path: str | None = None,
-        tq_bits: int = 3,
-        tq_fused: bool = False,
+        cache_capacity: int = 1,
     ):
         self.model_path = model_path
 
@@ -30,13 +27,9 @@ class MlxEngine:
             adapter_path=adapter_path,
             return_config=True,
         )
-        self.cache_dict: PrefixDict[Cache] = PrefixDict()
+        self.cache_dict: PrefixDict[Cache] = PrefixDict(capacity=cache_capacity)
 
-        self._make_cache = lambda: [
-            # TurboQuantKVCache(bits=tq_bits, fused=tq_fused)
-            KVCache()
-            for _ in range(len(self.model.layers))                   # type: ignore
-        ]
+        self._make_cache = lambda: [KVCache() for _ in range(len(self.model.layers))] # type: ignore
 
     def model_func(self, cache: Cache, tokens: mx.array) -> tuple[list, mx.array]:
         # tokens[None] changes shape from [n] to [1, n]
@@ -89,21 +82,20 @@ class MlxEngine:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    # model_path = "lmstudio-community/Qwen3-4B-Thinking-2507-MLX-4bit"
     model_path = "mlx-community/Qwen3-0.6B-4bit"
     engine = MlxEngine(model_path)
 
     # Round 1
     messages = [{"role": "user", "content": "Say 'hello' and nothing else."}]
     prompt1 = engine.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-    tokens1 = engine.tokenizer.encode(prompt1)
+    tokens1 = engine.tokenizer.encode(prompt1) # type: ignore
 
     print("--- Round 1 ---")
     out1: list[int] = []
     for t in engine.generate(tokens1, max_tokens=32):
         out1.append(t)
     
-    text1 = engine.tokenizer.decode(out1)
+    text1 = engine.tokenizer.decode(out1)  # type: ignore
     print(f"  prompt tokens: {len(tokens1)}")
     print(f"  output:        {text1}")
 
@@ -111,13 +103,13 @@ if __name__ == "__main__":
     messages.append({"role": "assistant", "content": text1})
     messages.append({"role": "user", "content": "What did you just say?"})
     prompt2 = engine.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-    tokens2 = engine.tokenizer.encode(prompt2)
+    tokens2 = engine.tokenizer.encode(prompt2)  # type: ignore
 
     print("--- Round 2 ---")
     out2: list[int] = []
     for t in engine.generate(tokens2, max_tokens=32):
         out2.append(t)
-    text2 = engine.tokenizer.decode(out2)
+    text2 = engine.tokenizer.decode(out2)  # type: ignore
     print(f"  prompt tokens: {len(tokens2)}")
     print(f"  cached prefix: {len(tokens2) - len(tokens1)} suffix tokens (reused {len(tokens1)} from round 1)")
     print(f"  output:        {text2}")
