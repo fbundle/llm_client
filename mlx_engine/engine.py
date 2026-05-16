@@ -30,8 +30,10 @@ class MlxEngine:
         )
         self.cache_dict: PrefixDict[Cache] = PrefixDict(capacity=cache_capacity)
 
+        self.request_count = 0
+        self.cache_hit_count = 0
+
     def _make_cache(self) -> Cache:
-        logging.info("CACHE MISS")
         return [KVCache() for _ in range(len(self.model.layers))] # type: ignore
 
     def model_func(self, cache: Cache, tokens: mx.array) -> tuple[list, mx.array]:
@@ -49,13 +51,19 @@ class MlxEngine:
         min_p: float = 0.0,
     ) -> Iterator[int]:
         # manage cache
+        self.request_count += 1
+
         prev_state: Cache | None = self.cache_dict.pop(prompt)
         if prev_state is None:
             prev_state = self._make_cache()
             suffix = prompt
         else:
+            self.cache_hit_count += 1
             prefix_len = get_cache_prompt_length(prev_state)
             suffix = prompt[prefix_len:]
+
+        cache_hit_rate = self.cache_hit_count / self.request_count
+        logging.info(f"cache_hit_rate {cache_hit_rate}")
 
         sample_func = lambda logits: int(mlx_lm.sample_utils.make_sampler(                   # type: ignore
             temp=temperature, top_p=top_p, top_k=top_k, min_p=min_p,
@@ -87,7 +95,7 @@ class MlxEngine:
         
         self.cache_dict.push(prompt, new_state)
 
-        yield self.tokenizer.eos_token_ids # type: ignore
+        yield list(self.tokenizer.eos_token_ids)[0] # type: ignore
 
         
 
