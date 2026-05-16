@@ -19,7 +19,7 @@ class MlxEngine:
     def __init__(self,
         model_path: str,
         adapter_path: str | None = None,
-        tq_bits: int = 4,
+        tq_bits: int = 3,
         tq_fused: bool = False,
     ):
         self.model_path = model_path
