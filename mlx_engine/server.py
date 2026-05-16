@@ -80,7 +80,7 @@ class Server:
 
             delta: dict = {}
             if delta_text:
-                delta["content"] = delta_text
+                delta["reasoning_content"] = delta_text
 
             chunk = {
                 "id": f"chatcmpl-{int(t0 * 1000)}",
@@ -89,11 +89,6 @@ class Server:
                 "model": engine.model_path,
                 "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
             }
-
-            _, tool_calls = parse_tool_calls(full_text)
-            if tool_calls:
-                chunk["choices"][0]["delta"]["tool_calls"] = tool_calls
-                chunk["choices"][0]["finish_reason"] = "tool_calls"
 
             yield f"data: {json.dumps(chunk)}\n\n"
 
@@ -125,11 +120,16 @@ class Server:
             generated.append(token_id)
 
         full_text = engine.tokenizer.decode(generated)
-        clean_text, tool_calls = parse_tool_calls(full_text)
+        parts = full_text.split("</think>", 1)
+        reasoning = parts[0].strip() if len(parts) > 1 else ""
+        content = parts[1].strip() if len(parts) > 1 else full_text.strip()
+        clean_text, tool_calls = parse_tool_calls(content)
         if tool_calls:
             finish_reason = "tool_calls"
 
         message: dict = {"role": "assistant", "content": clean_text or None}
+        if reasoning:
+            message["reasoning_content"] = reasoning
         if tool_calls:
             message["tool_calls"] = tool_calls
 

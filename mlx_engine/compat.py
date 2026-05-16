@@ -77,12 +77,13 @@ def build_prompt(engine, messages: list[dict],
     Returns the prompt string ready for the model's generate().
     """
     formatted = format_messages(messages)
+    template_kwargs = {**(chat_template_kwargs or {}), "enable_thinking": True}
     prompt = engine.tokenizer.apply_chat_template(
         conversation=formatted,
         tools=tools,
         add_generation_prompt=True,
         tokenize=False,
-        **(chat_template_kwargs or {}),
+        **template_kwargs,
     )
 
     model_max = getattr(engine.tokenizer, "model_max_length", 0)
