@@ -92,6 +92,26 @@ class Server:
 
             yield f"data: {json.dumps(chunk)}\n\n"
 
+        # After generation, split and send the real content
+        full_text = engine.tokenizer.decode(generated)
+        parts = full_text.split("</think>", 1)
+        content = parts[1].strip() if len(parts) > 1 else ""
+        if content:
+            clean_text, tool_calls = parse_tool_calls(content)
+            final_delta: dict = {"content": clean_text}
+            finish_reason = "stop"
+            if tool_calls:
+                final_delta["tool_calls"] = tool_calls
+                finish_reason = "tool_calls"
+            final_chunk = {
+                "id": f"chatcmpl-{int(t0 * 1000)}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": engine.model_path,
+                "choices": [{"index": 0, "delta": final_delta, "finish_reason": finish_reason}],
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+
         yield "data: [DONE]\n\n"
 
     def _sync_response(self, engine: MlxEngine,
