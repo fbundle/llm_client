@@ -1,4 +1,4 @@
-"""OpenAI-compatible FastAPI server on top of tq_mlx_engine.
+"""OpenAI-compatible FastAPI server on top of mlx_engine.
 
 Handles HTTP, SSE streaming, model caching.
 Delegates raw generation to engine.MlxEngine and compatibility to compat.
@@ -11,16 +11,16 @@ from typing import Iterator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from moka_py import Moka
-from tq_mlx_engine.compat import build_prompt, parse_tool_calls
-from tq_mlx_engine.engine import MlxEngine
+from mlx_engine.compat import build_prompt, parse_tool_calls
+from mlx_engine.engine import MlxEngine
 
 
 class TQServer:
-    """OpenAI-compatible chat completion server with TurboQuant KV cache."""
+    """OpenAI-compatible chat completion server with KV cache prefix reuse."""
 
     def __init__(self, model_path: str, adapter_path: str | None = None,
                  max_context: int = 32768, **engine_kwargs):
-        self.fastapi = FastAPI(title="TurboQuant MLX Server")
+        self.fastapi = FastAPI(title="MLX Server")
         self.default_model = model_path
         self.adapter_path = adapter_path
         self.max_context = max_context

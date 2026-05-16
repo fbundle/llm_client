@@ -3,8 +3,8 @@ from typing import Iterator
 
 import mlx.core as mx
 import mlx_lm
-from tq_mlx_engine.generate import StreamGenerationIteration, stream_generate
-from tq_mlx_engine.prefix_dict import PrefixDict
+from mlx_engine.generate import StreamGenerationIteration, stream_generate
+from mlx_engine.prefix_dict import PrefixDict
 from mlx_lm.models.cache import KVCache
 
 

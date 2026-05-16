@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""TurboQuant MLX HTTP Server — thin entry point.
+"""MLX HTTP Server — thin entry point.
 
 Usage:
     uv run python run_server.py --model mlx-community/Qwen2.5-7B-Instruct-4bit
-    uv run python run_server.py --model mlx-community/Qwen2.5-7B-Instruct-4bit --tq-bits 3 --tq-fused
 """
 
 import argparse
 import logging
 
 import mlx.core as mx
-from tq_mlx_engine.server import TQServer
+from mlx_engine.server import TQServer
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="TurboQuant MLX HTTP Server")
+    parser = argparse.ArgumentParser(description="MLX HTTP Server")
 
     # Model
     parser.add_argument("--model", type=str, required=True,
@@ -25,12 +24,6 @@ def main() -> None:
     # Server
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=1334)
-
-    # TurboQuant
-    parser.add_argument("--tq-bits", type=int, default=3,
-                        help="TurboQuant bit width for KV cache (1-4, default: 3)")
-    parser.add_argument("--tq-fused", action="store_true",
-                        help="Use fused Metal attention kernels")
 
     # Context
     parser.add_argument("--max-context", type=int, default=32768,
@@ -55,9 +48,7 @@ def main() -> None:
         logging.info(f"Metal wired limit: {wired_limit / (1024**3):.1f} GB")
 
     server = TQServer(args.model, args.adapter_path,
-                      max_context=args.max_context,
-                      tq_bits=args.tq_bits,
-                      tq_fused=args.tq_fused)
+                      max_context=args.max_context)
 
     # Pre-load the default model so the first request doesn't block
     server._get_engine(args.model)
