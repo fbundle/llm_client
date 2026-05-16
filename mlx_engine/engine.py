@@ -3,6 +3,7 @@ from typing import Iterator
 
 import mlx.core as mx
 import mlx_lm
+from tqdm import tqdm
 from mlx_engine.generate import StreamGenerationIteration, stream_generate
 from mlx_engine.prefix_dict import PrefixDict
 from mlx_lm.models.cache import KVCache
@@ -69,7 +70,7 @@ class MlxEngine:
 
         completion_token_list: list[int] = []
         new_state: Cache = prev_state
-        for o in i:
+        for o in tqdm(i, desc="generating tokens ...", unit="token"):
             new_state = o.state
             completion_token_list.append(o.token)
             yield o.token
