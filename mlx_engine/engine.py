@@ -30,7 +30,9 @@ class MlxEngine:
         )
         self.cache_dict: PrefixDict[Cache] = PrefixDict(capacity=cache_capacity)
 
-        self._make_cache = lambda: [KVCache() for _ in range(len(self.model.layers))] # type: ignore
+    def _make_cache(self) -> Cache:
+        logging.info("_make_cache")
+        return [KVCache() for _ in range(len(self.model.layers))] # type: ignore
 
     def model_func(self, cache: Cache, tokens: mx.array) -> tuple[list, mx.array]:
         # tokens[None] changes shape from [n] to [1, n]
@@ -49,7 +51,7 @@ class MlxEngine:
         # manage cache
         prev_state: Cache | None = self.cache_dict.pop(prompt)
         if prev_state is None:
-            logging.info("_make_cache")
+            
             prev_state = self._make_cache()
             suffix = prompt
         else:
