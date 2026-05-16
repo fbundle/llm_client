@@ -10,8 +10,6 @@ from llm_client.tool import ChatCompletionFunctionToolParam, Tool, ToolOutput
 
 
 def _slice(text: str, beg: int, end: int) -> str:
-    if end == -1:
-        return text[beg:]
     return text[beg:end]
 
 
@@ -35,106 +33,106 @@ class PlaywrightBrowser:
 
     # -- navigation --------------------------------------------------------
 
-    def navigate(self, url: str, beg: int = 0, end: int = -1) -> str:
+    def navigate(self, url: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             return _slice(f"navigated to {url} — title: {page.title()}", beg, end)
 
-    def go_back(self, beg: int = 0, end: int = -1) -> str:
+    def go_back(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.go_back(wait_until="domcontentloaded", timeout=10000)
             return _slice(f"went back — {page.url}", beg, end)
 
-    def go_forward(self, beg: int = 0, end: int = -1) -> str:
+    def go_forward(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.go_forward(wait_until="domcontentloaded", timeout=10000)
             return _slice(f"went forward — {page.url}", beg, end)
 
-    def reload(self, beg: int = 0, end: int = -1) -> str:
+    def reload(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.reload(wait_until="domcontentloaded", timeout=30000)
             return _slice(f"reloaded — {page.url}", beg, end)
 
     # -- mouse -------------------------------------------------------------
 
-    def click(self, selector: str, beg: int = 0, end: int = -1) -> str:
+    def click(self, selector: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.click(selector, timeout=10000)
             return _slice(f"clicked {selector}", beg, end)
 
-    def dblclick(self, selector: str, beg: int = 0, end: int = -1) -> str:
+    def dblclick(self, selector: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.dblclick(selector, timeout=10000)
             return _slice(f"double-clicked {selector}", beg, end)
 
-    def hover(self, selector: str, beg: int = 0, end: int = -1) -> str:
+    def hover(self, selector: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.hover(selector, timeout=10000)
             return _slice(f"hovered {selector}", beg, end)
 
     # -- input -------------------------------------------------------------
 
-    def type_text(self, selector: str, text: str, beg: int = 0, end: int = -1) -> str:
+    def type_text(self, selector: str, text: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.fill(selector, text, timeout=10000)
             return _slice(f"typed into {selector}", beg, end)
 
-    def press_key(self, key: str, beg: int = 0, end: int = -1) -> str:
+    def press_key(self, key: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.keyboard.press(key)
             return _slice(f"pressed {key}", beg, end)
 
-    def select_option(self, selector: str, value: str, beg: int = 0, end: int = -1) -> str:
+    def select_option(self, selector: str, value: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.select_option(selector, value, timeout=10000)
             return _slice(f"selected '{value}' in {selector}", beg, end)
 
-    def check(self, selector: str, beg: int = 0, end: int = -1) -> str:
+    def check(self, selector: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.check(selector, timeout=10000)
             return _slice(f"checked {selector}", beg, end)
 
-    def uncheck(self, selector: str, beg: int = 0, end: int = -1) -> str:
+    def uncheck(self, selector: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.uncheck(selector, timeout=10000)
             return _slice(f"unchecked {selector}", beg, end)
 
     # -- read --------------------------------------------------------------
 
-    def screenshot(self, beg: int = 0, end: int = -1) -> bytes:
+    def screenshot(self, beg: int = 0, end: int = 1000) -> bytes:
         with self._page() as page:
             return page.screenshot(type="jpeg", quality=80, full_page=False)
 
-    def content(self, beg: int = 0, end: int = -1) -> str:
+    def content(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             return _slice(page.inner_text("body"), beg, end)
 
-    def html(self, beg: int = 0, end: int = -1) -> str:
+    def html(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             return _slice(page.content(), beg, end)
 
-    def url(self, beg: int = 0, end: int = -1) -> str:
+    def url(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             return _slice(page.url, beg, end)
 
-    def title(self, beg: int = 0, end: int = -1) -> str:
+    def title(self, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             return _slice(page.title(), beg, end)
 
-    def evaluate(self, js: str, beg: int = 0, end: int = -1) -> str:
+    def evaluate(self, js: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             return _slice(str(page.evaluate(js)), beg, end)
 
     # -- scroll ------------------------------------------------------------
 
-    def scroll(self, direction: str, beg: int = 0, end: int = -1) -> str:
+    def scroll(self, direction: str, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             page.evaluate(f"window.scrollBy(0, {'-window.innerHeight' if direction == 'up' else 'window.innerHeight'})")
             return _slice(f"scrolled {direction}", beg, end)
 
     # -- wait --------------------------------------------------------------
 
-    def wait(self, selector: str = "", ms: int = 0, beg: int = 0, end: int = -1) -> str:
+    def wait(self, selector: str = "", ms: int = 0, beg: int = 0, end: int = 1000) -> str:
         with self._page() as page:
             import time
             if ms > 0:
@@ -175,7 +173,7 @@ _DISPATCH: dict[str, str] = {
 
 _BEG_END = {
     "beg": {"type": "integer", "description": "Start index for partial text extraction (0-based, default 0)."},
-    "end": {"type": "integer", "description": "End index for partial text extraction (-1 = to end, default -1)."},
+    "end": {"type": "integer", "description": "End index for partial text extraction (default 1000)."},
 }
 
 _SCHEMAS: dict[str, ChatCompletionFunctionToolParam] = {
@@ -442,7 +440,10 @@ class PlaywrightBrowserTool(Tool):
             return ToolOutput(state_change=False, output="", error=f"unknown tool: {name}")
 
         beg = int(kwargs.get("beg", 0))
-        end = int(kwargs.get("end", -1))
+        end = int(kwargs.get("end", 1000))
+
+        if beg < 0 or end < 0 or beg > end:
+            return ToolOutput(state_change=False, output="", error=f"invalid range: beg={beg}, end={end}")
 
         try:
             method = getattr(self._browser, method_name)
@@ -471,7 +472,7 @@ class PlaywrightBrowserTool(Tool):
                 sig["ms"] = kwargs.get("ms", 0)
             elif name == "browser_screenshot":
                 sig["beg"] = kwargs.get("beg", 0)
-                sig["end"] = kwargs.get("end", -1)
+                sig["end"] = kwargs.get("end", 1000)
 
             if name != "browser_screenshot":
                 sig["beg"] = beg
