@@ -49,6 +49,7 @@ class MlxEngine:
         # manage cache
         prev_state: Cache | None = self.cache_dict.pop(prompt)
         if prev_state is None:
+            logging.info("_make_cache")
             prev_state = self._make_cache()
             suffix = prompt
         else:
