@@ -222,7 +222,7 @@ def _stream_response(
             tool_calls += xml_calls
 
     tool_calls = sorted(tool_calls, key=lambda t: t.id)
-    return content_buf, tool_calls
+    return content_buf, reasoning_buf, tool_calls
 
 
 def _execute_tools(
@@ -344,7 +344,7 @@ class LLMClient:
 
         while not cb.is_stopped():
             try:
-                content, tool_calls = _stream_response(
+                content, reasoning, tool_calls = _stream_response(
                     self._client, self.model, self.messages, tools,
                     self.max_tokens, self.temperature, self.top_p, cb,
                 )
@@ -354,20 +354,21 @@ class LLMClient:
                 break
 
             if not tool_calls or self.tool is None:
-                self.messages.append(ChatCompletionAssistantMessageParam(
-                    role="assistant", content=content or None,
-                ))
+                msg: dict = {"role": "assistant", "content": content or None}
+                if reasoning:
+                    msg["reasoning_content"] = reasoning
+                self.messages.append(ChatCompletionAssistantMessageParam(**msg))
                 break
 
             tool_results = _execute_tools(tool_calls, self.tool, cb)
-            self.messages = self.messages + [
-                ChatCompletionAssistantMessageParam(
-                    role="assistant",
-                    content=content or None,
-                    tool_calls=[_make_tool_call_param(tc) for tc in tool_calls],
-                ),
-                *tool_results,
-            ]
+            msg = {
+                "role": "assistant",
+                "content": content or None,
+                "tool_calls": [_make_tool_call_param(tc) for tc in tool_calls],
+            }
+            if reasoning:
+                msg["reasoning_content"] = reasoning
+            self.messages = self.messages + [ChatCompletionAssistantMessageParam(**msg), *tool_results]
 
     def generate_prompt(self, meta_prompt: str, system_prompt: str, cb: Callbacks | None = None) -> str:
         if cb is None:

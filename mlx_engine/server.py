@@ -94,8 +94,10 @@ class Server:
 
         # After generation, split and send the real content
         full_text = engine.tokenizer.decode(generated)
-        parts = full_text.split("</think>", 1)
-        content = parts[1].strip() if len(parts) > 1 else ""
+
+        parts = full_text.split("</think>")
+        content = parts[-1]
+
         if content:
             clean_text, tool_calls = parse_tool_calls(content)
             final_delta: dict = {"content": clean_text}
@@ -140,9 +142,11 @@ class Server:
             generated.append(token_id)
 
         full_text = engine.tokenizer.decode(generated)
-        parts = full_text.split("</think>", 1)
-        reasoning = parts[0].strip() if len(parts) > 1 else ""
-        content = parts[1].strip() if len(parts) > 1 else full_text.strip()
+
+        parts = full_text.split("</think>")
+        content = parts[-1]
+        reasoning = "</think>".join(parts[:-1])
+
         clean_text, tool_calls = parse_tool_calls(content)
         if tool_calls:
             finish_reason = "tool_calls"
