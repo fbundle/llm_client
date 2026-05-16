@@ -70,7 +70,7 @@ class MlxEngine:
 
         completion_token_list: list[int] = []
         new_state: Cache = prev_state
-        for o in tqdm(i, desc="generating tokens ...", unit="token"):
+        for o in tqdm(i, desc="generating ...", unit="tok"):
             new_state = o.state
             completion_token_list.append(o.token)
             yield o.token
