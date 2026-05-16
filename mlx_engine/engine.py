@@ -77,7 +77,15 @@ class MlxEngine:
         
         new_prompt = prompt + completion_token_list
         assert get_cache_prompt_length(new_state) == len(new_prompt)
-        self.cache_dict.push(new_prompt, new_state)
+
+        # self.cache_dict.push(new_prompt, new_state)
+        # completion_token_list containg reasoning_content and will be cut off in the next call
+        for kv in new_state:                                                                                
+            kv.trim(len(completion_token_list))
+        
+        self.cache_dict.push(prompt, new_state)
+
+        
 
 
 if __name__ == "__main__":
