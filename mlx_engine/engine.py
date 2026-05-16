@@ -31,6 +31,7 @@ class MlxEngine:
         self.cache_dict: PrefixDict[Cache] = PrefixDict(capacity=cache_capacity)
 
     def _make_cache(self) -> Cache:
+        logging.info("CACHE MISS")
         return [KVCache() for _ in range(len(self.model.layers))] # type: ignore
 
     def model_func(self, cache: Cache, tokens: mx.array) -> tuple[list, mx.array]:
@@ -53,7 +54,6 @@ class MlxEngine:
             prev_state = self._make_cache()
             suffix = prompt
         else:
-            logging.info("CACHE HIT")
             prefix_len = get_cache_prompt_length(prev_state)
             suffix = prompt[prefix_len:]
 
@@ -86,6 +86,8 @@ class MlxEngine:
             kv.trim(len(completion_token_list))
         
         self.cache_dict.push(prompt, new_state)
+
+        yield self.tokenizer.eos_token_ids # type: ignore
 
         
 
