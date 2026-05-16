@@ -9,7 +9,7 @@ import argparse
 import logging
 
 import mlx.core as mx
-from mlx_engine.server import TQServer
+from mlx_engine.server import Server
 
 
 def main() -> None:
@@ -47,7 +47,7 @@ def main() -> None:
         mx.set_wired_limit(wired_limit)
         logging.info(f"Metal wired limit: {wired_limit / (1024**3):.1f} GB")
 
-    server = TQServer(args.model, args.adapter_path,
+    server = Server(args.model, args.adapter_path,
                       max_context=args.max_context)
 
     # Pre-load the default model so the first request doesn't block

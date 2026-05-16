@@ -15,7 +15,7 @@ from mlx_engine.compat import build_prompt, parse_tool_calls
 from mlx_engine.engine import MlxEngine
 
 
-class TQServer:
+class Server:
     """OpenAI-compatible chat completion server with KV cache prefix reuse."""
 
     def __init__(self, model_path: str, adapter_path: str | None = None,
